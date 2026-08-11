@@ -10,6 +10,7 @@ import com.psybergate.recruitment.ai.dto.GroqChatRequest;
 import com.psybergate.recruitment.ai.dto.GroqChatResponse;
 import com.psybergate.recruitment.ai.dto.GroqMessage;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -28,6 +29,7 @@ public class GroqClient implements AiClient {
     private final RestClient restClient;
 
     // Production constructor — builds RestClient from properties
+    @Autowired
     public GroqClient(AiProperties properties) {
         this.properties = properties;
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
