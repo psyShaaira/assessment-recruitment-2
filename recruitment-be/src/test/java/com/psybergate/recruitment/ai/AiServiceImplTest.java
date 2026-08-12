@@ -107,4 +107,31 @@ class AiServiceImplTest {
         assertThatThrownBy(() -> service.prompt("test"))
                 .isSameAs(ex);
     }
+
+    // ── promptForJson ─────────────────────────────────────────────────────────
+
+    @Test
+    void promptForJson_validPrompt_delegatesToClientSendPromptForJson() {
+        when(aiClient.sendPromptForJson("Hello")).thenReturn("{\"result\":\"ok\"}");
+
+        String result = service.promptForJson("Hello");
+
+        assertThat(result).isEqualTo("{\"result\":\"ok\"}");
+        verify(aiClient).sendPromptForJson("Hello");
+        verify(aiClient, never()).sendPrompt(anyString());
+    }
+
+    @Test
+    void promptForJson_nullPrompt_throwsIllegalArgumentExceptionWithoutCallingClient() {
+        assertThatThrownBy(() -> service.promptForJson(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(aiClient);
+    }
+
+    @Test
+    void promptForJson_blankPrompt_throwsIllegalArgumentExceptionWithoutCallingClient() {
+        assertThatThrownBy(() -> service.promptForJson("  "))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(aiClient);
+    }
 }

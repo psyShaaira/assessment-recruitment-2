@@ -48,6 +48,15 @@ public class GroqClient implements AiClient {
 
     @Override
     public String sendPrompt(String prompt) {
+        return doSend(prompt, false);
+    }
+
+    @Override
+    public String sendPromptForJson(String prompt) {
+        return doSend(prompt, true);
+    }
+
+    private String doSend(String prompt, boolean jsonMode) {
         // Fail at point of use — avoids breaking context startup when key is not configured
         if (properties.apiKey() == null || properties.apiKey().isBlank()) {
             throw new AiAuthenticationException("AI provider is not configured: missing API key");
@@ -61,6 +70,9 @@ public class GroqClient implements AiClient {
                 List.of(new GroqMessage("user", prompt)),
                 properties.temperature()
         );
+        if (jsonMode) {
+            request = request.withJsonObjectFormat();
+        }
 
         try {
             GroqChatResponse response = restClient.post()

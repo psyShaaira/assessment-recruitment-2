@@ -1,6 +1,5 @@
 package com.psybergate.recruitment.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.psybergate.recruitment.ai.client.GroqClient;
 import com.psybergate.recruitment.ai.dto.GroqChatResponse;
 import com.psybergate.recruitment.ai.dto.GroqChoice;
@@ -13,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -37,8 +37,8 @@ class GroqClientTest {
 
     @BeforeEach
     void setUp() {
-        // Use RestTemplate-backed MockRestServiceServer, adapt to RestClient
         RestTemplate restTemplate = new RestTemplate();
+        restTemplate.setUriTemplateHandler(new org.springframework.web.util.DefaultUriBuilderFactory(BASE_URL));
         mockServer = MockRestServiceServer.createServer(restTemplate);
         RestClient restClient = RestClient.create(restTemplate);
         groqClient = new GroqClient(props(), restClient);
@@ -170,7 +170,6 @@ class GroqClientTest {
                 .isNotBlank()
                 .doesNotContain("Groq");
 
-        // mockServer not used — no HTTP call made
         mockServer.verify();
     }
 

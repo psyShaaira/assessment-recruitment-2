@@ -14,9 +14,19 @@ public class AiServiceImpl implements AiService {
 
     @Override
     public String prompt(String prompt) {
+        validate(prompt);
+        return aiClient.sendPrompt(prompt);
+    }
+
+    @Override
+    public String promptForJson(String prompt) {
+        validate(prompt);
+        return aiClient.sendPromptForJson(prompt);
+    }
+
+    private void validate(String prompt) {
         if (prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("Prompt must not be null or blank");
         }
-        return aiClient.sendPrompt(prompt);
     }
 }
