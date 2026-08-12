@@ -74,6 +74,12 @@ public class AssessmentController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/suggest-questions")
+    public ResponseEntity<AssemblySuggestionResponse> suggestQuestions(
+            @RequestBody @Valid AssemblySuggestionRequest request) {
+        return ResponseEntity.ok(assessmentService.suggestQuestions(request));
+    }
+
     @GetMapping("/{id}/preview")
     @PreAuthorize("hasAnyRole('ADMIN','RECRUITER','CANDIDATE')")
     public ResponseEntity<AssessmentPreviewResponse> preview(@PathVariable UUID id,

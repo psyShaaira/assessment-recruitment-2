@@ -14,7 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -212,6 +215,31 @@ public class AssessmentServiceImpl implements AssessmentService {
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public AssemblySuggestionResponse suggestQuestions(AssemblySuggestionRequest request) {
+        Set<UUID> alreadySuggested = new HashSet<>();
+        List<AssemblyQuotaOutcome> outcomes = new ArrayList<>();
+
+        for (AssemblyQuotaDto quota : request.quotas()) {
+            String tagName = quota.tag() != null ? quota.tag().trim().toLowerCase() : null;
+            List<Question> pool = questionRepository.findByTagNameAndDifficulty(tagName, quota.difficulty())
+                    .stream()
+                    .filter(q -> !alreadySuggested.contains(q.getId()))
+                    .collect(Collectors.toCollection(ArrayList::new));
+            Collections.shuffle(pool);
+
+            List<Question> picked = pool.stream().limit(quota.count()).toList();
+            picked.forEach(q -> alreadySuggested.add(q.getId()));
+
+            List<SuggestedAssemblyQuestionDto> suggested = picked.stream().map(this::toSuggestedDto).toList();
+            int shortfall = quota.count() - suggested.size();
+            outcomes.add(new AssemblyQuotaOutcome(quota, suggested, shortfall));
+        }
+
+        return new AssemblySuggestionResponse(outcomes);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private Assessment requireAssessment(UUID id) {
@@ -285,6 +313,14 @@ public class AssessmentServiceImpl implements AssessmentService {
         return a.getRandomisationQuotas().stream()
                 .map(q -> new RandomisationQuotaDto(q.getQuestionType(), q.getCount()))
                 .collect(Collectors.toList());
+    }
+
+    private SuggestedAssemblyQuestionDto toSuggestedDto(Question q) {
+        Question unproxied = (Question) Hibernate.unproxy(q);
+        List<String> tags = unproxied.getTags().stream().map(Tag::getName).sorted().toList();
+        return new SuggestedAssemblyQuestionDto(
+                unproxied.getId(), unproxied.getType(), unproxied.getTitle(), unproxied.getDifficulty(), tags
+        );
     }
 
     private PreviewQuestionDto toPreviewQuestion(Question q) {

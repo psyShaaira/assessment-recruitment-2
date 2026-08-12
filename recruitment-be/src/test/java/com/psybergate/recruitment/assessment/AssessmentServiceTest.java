@@ -1,6 +1,10 @@
 package com.psybergate.recruitment.assessment;
 
 import com.psybergate.recruitment.assessment.dto.AddAssessmentQuestionRequest;
+import com.psybergate.recruitment.assessment.dto.AssemblyQuotaDto;
+import com.psybergate.recruitment.assessment.dto.AssemblyQuotaOutcome;
+import com.psybergate.recruitment.assessment.dto.AssemblySuggestionRequest;
+import com.psybergate.recruitment.assessment.dto.AssemblySuggestionResponse;
 import com.psybergate.recruitment.domain.*;
 import com.psybergate.recruitment.question.domain.TextQuestion;
 import com.psybergate.recruitment.repository.AssessmentQuestionRepository;
@@ -50,7 +54,7 @@ class AssessmentServiceTest {
         assessment.setTitle("Test Assessment");
         assessment.setQuestions(new java.util.ArrayList<>());
 
-        when(assessmentRepository.findById(assessmentId)).thenReturn(Optional.of(assessment));
+        lenient().when(assessmentRepository.findById(assessmentId)).thenReturn(Optional.of(assessment));
     }
 
     @Test
@@ -131,5 +135,64 @@ class AssessmentServiceTest {
         var result = service.addQuestion(assessmentId, new AddAssessmentQuestionRequest(questionId, 1));
 
         assertThat(result.created()).isTrue();
+    }
+
+    @Test
+    void suggestQuestions_poolHasEnough_returnsFullQuotaWithNoShortfall() {
+        TextQuestion q1 = textQuestion(Difficulty.EASY);
+        TextQuestion q2 = textQuestion(Difficulty.EASY);
+        TextQuestion q3 = textQuestion(Difficulty.EASY);
+        when(questionRepository.findByTagNameAndDifficulty("java", Difficulty.EASY))
+                .thenReturn(List.of(q1, q2, q3));
+
+        AssemblyQuotaDto quota = new AssemblyQuotaDto("java", Difficulty.EASY, 2);
+        AssemblySuggestionResponse response = service.suggestQuestions(new AssemblySuggestionRequest(List.of(quota)));
+
+        AssemblyQuotaOutcome outcome = response.outcomes().get(0);
+        assertThat(outcome.suggested()).hasSize(2);
+        assertThat(outcome.shortfall()).isZero();
+    }
+
+    @Test
+    void suggestQuestions_poolInsufficient_returnsShortfallInsteadOfError() {
+        TextQuestion onlyMatch = textQuestion(Difficulty.HARD);
+        when(questionRepository.findByTagNameAndDifficulty("rare-topic", Difficulty.HARD))
+                .thenReturn(List.of(onlyMatch));
+
+        AssemblyQuotaDto quota = new AssemblyQuotaDto("rare-topic", Difficulty.HARD, 5);
+        AssemblySuggestionResponse response = service.suggestQuestions(new AssemblySuggestionRequest(List.of(quota)));
+
+        AssemblyQuotaOutcome outcome = response.outcomes().get(0);
+        assertThat(outcome.suggested()).hasSize(1);
+        assertThat(outcome.shortfall()).isEqualTo(4);
+    }
+
+    @Test
+    void suggestQuestions_multipleQuotasShareCandidatePool_neverSuggestsSameQuestionTwice() {
+        TextQuestion q1 = textQuestion(Difficulty.MEDIUM);
+        TextQuestion q2 = textQuestion(Difficulty.MEDIUM);
+        // Both quotas resolve to the same 2-question pool (e.g. overlapping tags)
+        when(questionRepository.findByTagNameAndDifficulty("sql", Difficulty.MEDIUM))
+                .thenReturn(List.of(q1, q2));
+        when(questionRepository.findByTagNameAndDifficulty("database", Difficulty.MEDIUM))
+                .thenReturn(List.of(q1, q2));
+
+        AssemblyQuotaDto quotaA = new AssemblyQuotaDto("sql", Difficulty.MEDIUM, 1);
+        AssemblyQuotaDto quotaB = new AssemblyQuotaDto("database", Difficulty.MEDIUM, 1);
+        AssemblySuggestionResponse response = service.suggestQuestions(
+                new AssemblySuggestionRequest(List.of(quotaA, quotaB)));
+
+        UUID firstPicked = response.outcomes().get(0).suggested().get(0).id();
+        UUID secondPicked = response.outcomes().get(1).suggested().get(0).id();
+        assertThat(secondPicked).isNotEqualTo(firstPicked);
+    }
+
+    private TextQuestion textQuestion(Difficulty difficulty) {
+        TextQuestion q = new TextQuestion();
+        q.setId(UUID.randomUUID());
+        q.setTitle("Question " + q.getId());
+        q.setDifficulty(difficulty);
+        q.setTags(new java.util.HashSet<>());
+        return q;
     }
 }

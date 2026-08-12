@@ -28,4 +28,6 @@ public interface AssessmentService {
     AssessmentDetailResponse reorderQuestions(UUID assessmentId, ReorderAssessmentQuestionsRequest request);
 
     boolean verifyAccessPassword(UUID assessmentId, String rawPassword);
+
+    AssemblySuggestionResponse suggestQuestions(AssemblySuggestionRequest request);
 }

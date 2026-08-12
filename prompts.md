@@ -1734,3 +1734,76 @@ Relevant files reviewed:
 
 ---
 
+## 2026-08-12 11:26 | nkosinathi.phiri | in: 6 out: 1578 | cache_read: 600893 cache_write: 4883
+
+> continue with the epic
+
+---
+
+## 2026-08-12 11:28 | nkosinathi.phiri | in: 12 out: 2226 | cache_read: 1705352 cache_write: 4493
+
+> <task-notification>
+<task-id>afc20f53ee63c9ae0</task-id>
+<tool-use-id>toolu_01QP7GQyAUWARQ4xN8gSVenk</tool-use-id>
+<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\f5129d38-3bc1-4fab-b93b-b584c00ea11c\tasks\afc20f53ee63c9ae0.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore assessment assembly and randomization code" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>This is enough. Now compiling the final report.
+
+## Findings
+
+**1. `RandomisationQuotaDto`**
+`recruitment-be/src/main/java/com/psybergate/recruitment/assessment/dto/RandomisationQuotaDto.java`
+```java
+package com.psybergate.recruitment.assessment.dto;
+public record RandomisationQuotaDto(
+        @NotNull QuestionType questionType,
+        @Min(1) int count
+) {}
+```
+Note: quota is keyed by `QuestionType` (`MCQ, TEXT, CODE_SUBMISSION, GROUP` — see `com.psybergate.recruitment.domain.QuestionType`), **not** by topic/tag or difficulty. Backing entity `com.psybergate.recruitment.domain.RandomisationQuota` (`assessment_randomisation_quotas` table): `UUID id`, `Assessment assessment` (ManyToOne), `QuestionType questionType`, `int count`.
+
+**2. Actual runtime selection method**
+Not in `AssessmentServiceImpl` (that class only stores/echoes quota config — see `applyRandomisation`/`toQuotaDtos` in `assessment/AssessmentServiceImpl.java`). The real quota-based random draw is:
+
+`recruitment-be/src/main/java/com/psybergate/recruitment/take/CandidateTakeServiceImpl.java`
+```java
+private List&lt;AssessmentQuestion&gt; resolveQuestions(Assessment assessment, UUID submissionId)
+```
+Algorithm: loads all `AssessmentQuestion`s for the assessment; if `assessment.isRandomiseQuestions()` is false, returns them all in display order. Otherwise: checks `SubmissionQuestionSnapshotRepository` for an existing snapshot (resume path — returns the previously-drawn set in original order). On first load, groups the assessment's questions by `QuestionType` (`Collectors.groupingBy`), then for each `RandomisationQuota` on the assessment, takes the pool for that `questionType`, throws `400 BAD_REQUEST` if `quota.getCount() &gt; pool.size()`, otherwise does `Collections.shuffle(new ArrayList&lt;&gt;(pool))` and takes `subList(0, count)`. Selected questions are persisted per-candidate into `SubmissionQuestionSnapshot` (question id + display order) so the draw is stable across reloads/resume. No topic/tag or difficulty filtering is involved — selection pool is only partitioned by `QuestionType`.
+
+**3. Controller endpoints**
+- Config (recruiter/admin side): `com.psybergate.recruitment.assessment.AssessmentController` — `POST /api/assessments` and `PUT /api/assessments/{id}` accept `AssessmentRequest` (`title, description, timeLimitMinutes, accessPassword, boolean randomiseQuestions, List&lt;RandomisationQuotaDto&gt; randomisationQuotas`), returning `AssessmentDetailResponse`. Preview: `GET /api/assessments/{id}/preview` → `AssessmentPreviewResponse(id, title, description, timeLimitMinutes, passwordRequired, randomiseQuestions, List&lt;RandomisationQuotaDto&gt;, List&lt;PreviewQuestionDto&gt;)`.
+- Actual draw execution (candidate side): `com.psybergate.recruitment.take.CandidateTakeController`, `@RequestMapping("/api/take")`, `GET /api/take/assessment` → calls `resolveQuestions` internally, returns `AssessmentTakeResponse`.
+
+**4. Question filtering**
+`recruitment-be/src/main/java/com/psybergate/recruitment/repository/QuestionRepository.java`:
+```java
+public interface QuestionRepository extends JpaRepository&lt;Question, UUID&gt; {
+    @Query("SELECT DISTINCT q FROM Question q JOIN q.tags t WHERE t.name = :tagName")
+    List&lt;Question&gt; findByTagName(@Param("tagName") String tagName);
+}
+```
+No repository method filters by `Difficulty`. Topic is represented via `Question.tags: Set&lt;Tag&gt;` (`@ManyToMany`, join table `question_tags`) — `Tag` entity (`domain/Tag.java`) has only `UUID id` and `String name` (unique). `QuestionServiceImpl.findAll(String type, String tag)` (`question/QuestionServiceImpl.java`) does in-repository/service-level filtering by tag name and type string but not difficulty. `Question.difficulty: Difficulty` field exists (`EASY, MEDIUM, HARD`) but has no dedicated repository query.
+
+**5. Existing tests**
+`recruitment-be/src/test/java/com/psybergate/recruitment/take/CandidateTakeServiceTest.java` — plain JUnit5 + Mockito (`@ExtendWith(MockitoExtension.class)`, `@Mock`/`@InjectMocks`, AssertJ assertions). No test method directly targets `resolveQuestions`/quota-exceeds-pool logic by name (only submit/load/save-answer scenarios). No jqwik-based (property-based) test exists yet despite jqwik being a dependency in `pom.xml`.
+
+**6. Reusable AI/assembly infra**
+An `ai` package already exists: `com.psybergate.recruitment.ai.AiService` (`String prompt(String prompt)`), `AiServiceImpl`, `client/AiClient`, `client/GroqClient`, dtos `GroqChatRequest/Response/Choice/Message`, plus exceptions `AiAuthenticationException`, `AiCommunicationException`, `AiRateLimitException`, `AiResponseException`, `AiTimeoutException`, and `AiProperties`. No existing "assembly"/"suggestion" DTOs in `assessment/dto` or elsewhere — you'd add new ones there, reusing `AiService`/`GroqClient` rather than building a new LLM client.</result>
+<usage><subagent_tokens>53434</subagent_tokens><tool_uses>32</tool_uses><duration_ms>103349</duration_ms></usage>
+</task-notification>
+
+---
+
+## 2026-08-12 12:24 | nkosinathi.phiri | in: 2 out: 151 | cache_read: 287792 cache_write: 200
+
+> ❯ {
+  "quotas": [
+    {"tag": "java", "difficulty": "EASY", "count": 2}
+  ]
+} does the above look fine ?
+
+---
+
