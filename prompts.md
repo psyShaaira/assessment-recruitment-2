@@ -1722,3 +1722,15 @@ Relevant files reviewed:
 
 ---
 
+## 2026-08-12 10:28 | nkosinathi.phiri | in: 10 out: 3843 | cache_read: 788759 cache_write: 7510
+
+> continue with the rest of the epic
+
+---
+
+## 2026-08-12 11:21 | nkosinathi.phiri | in: 16 out: 5386 | cache_read: 1560873 cache_write: 7290
+
+> with the mis-match faliure is the no way to always append java to user prompt when it reaches the backend before sending to the model regardless of weather the user did mention or not
+
+---
+
