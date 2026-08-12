@@ -1397,3 +1397,328 @@ Make the adjustments you think would be best
 
 ---
 
+## 2026-08-11 12:16 | nkosinathi.phiri | in: 20 out: 3299 | cache_read: 642400 cache_write: 4801
+
+> pull from git if any changes present
+
+---
+
+## 2026-08-11 12:22 | nkosinathi.phiri | in: 10 out: 1089 | cache_read: 341931 cache_write: 1389
+
+> nah you can drop it and check if the is any open pr from the new branch to main
+
+---
+
+## 2026-08-11 12:30 | nkosinathi.phiri | in: 14 out: 1260 | cache_read: 494038 cache_write: 2483
+
+> done, check the PR now
+
+---
+
+## 2026-08-11 12:32 | nkosinathi.phiri | in: 2 out: 295 | cache_read: 72119 cache_write: 254
+
+> PS C:\myworkbench\personal_projects\ai_training\assessment-recruitment-2> ! gh auth login -h github.com
+At line:1 char:2
++ ! gh auth login -h github.com
++  ~
+Missing expression after unary operator '!'.
+At line:1 char:3
++ ! gh auth login -h github.com
++   ~~
+Unexpected token 'gh' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : MissingExpressionAfterOperator
+
+---
+
+## 2026-08-11 12:33 | nkosinathi.phiri | in: 4 out: 1103 | cache_read: 145351 cache_write: 572
+
+>  ! gh auth login -h github.com
+
+---
+
+## 2026-08-11 12:35 | nkosinathi.phiri | in: 4 out: 267 | cache_read: 147669 cache_write: 316
+
+> done, check the PR now
+
+---
+
+## 2026-08-11 12:46 | nkosinathi.phiri | in: 4 out: 1276 | cache_read: 148663 cache_write: 1830
+
+> review the pr using the pr reviews that are present choose the appropriate one
+
+---
+
+## 2026-08-11 12:48 | nkosinathi.phiri | in: 2 out: 106 | cache_read: 76102 cache_write: 8
+
+> check on the review progress
+
+---
+
+## 2026-08-11 12:57 | nkosinathi.phiri | in: 2 out: 1180 | cache_read: 76216 cache_write: 5348
+
+> <task-notification>
+<task-id>a06abaf57f5e70147</task-id>
+<tool-use-id>toolu_01AJJ7CW9f3cpRThCpF1fMPz</tool-use-id>
+<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\827270ca-5c86-4456-b5c3-fc14570ab14c\tasks\a06abaf57f5e70147.output</output-file>
+<status>completed</status>
+<summary>Agent "Review Groq integration PR" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Verdict
+**REQUEST CHANGES**
+
+The `AiService`/`AiClient`/`GroqClient` layering itself is clean and mirrors the `PistonClient` pattern well, but the PR ships in a state that breaks the existing test suite (verified by running it) and leaks upstream error details into API responses, so it cannot merge as-is.
+
+---
+
+## Summary
+
+This PR scaffolds a provider-independent AI integration layer (`AiService` → `AiClient` → `GroqClient`) for Groq chat completions, following the existing `execution/` (Piston) package pattern reasonably closely: interface-based DI, `@RequiredArgsConstructor`, `@ConfigurationProperties` record, and `@ResponseStatus`-annotated exceptions that ride the existing `GlobalExceptionHandler`. The design is sound, but the implementation has a startup-breaking configuration bug, leaks provider internals into client-facing error messages (contradicting the PR's own stated requirement 4.7), and ships test coverage for only the thin `AiServiceImpl` wrapper — the actual HTTP/error-mapping logic in `GroqClient` (the highest-risk code) has zero tests despite the PR title claiming "with testing."
+
+---
+
+### Inline comments
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiProperties.java` — `@NotBlank String apiKey`**
+&gt; 🔴 **Critical** — `Logic / Spring conventions`
+
+`@NotBlank` on `apiKey` combined with the `application.yaml` default `${GROQ_API_KEY:}` (empty string when unset) means the Spring context **fails to start** whenever `GROQ_API_KEY` isn't set in the environment. I checked out the branch and ran the existing suite — every `@SpringBootTest`-based integration test (not just AI-related ones) now fails at context refresh:
+
+```
+Caused by: BindValidationException: Binding validation errors on ai.groq
+ - Field error in object 'ai.groq' on field 'apiKey': rejected value []
+```
+
+This breaks `AuthControllerIntegrationTest`, `AssessmentControllerIntegrationTest`, and every other integration test that extends `AbstractIntegrationTest`, plus local `./mvnw spring-boot:run` without `GROQ_API_KEY` exported — which contradicts this repo's own convention of "environment variables with dev-only local defaults" (CLAUDE.md). `PistonProperties` has no such hard-fail field for exactly this reason.
+
+**Suggestion:** either give `apiKey` a placeholder dev default and validate lazily on first real call, or (better) drop `@NotBlank`/`@Validated` from the record and check for a blank key inside `GroqClient` at call time, throwing `AiAuthenticationException` — consistent with "fail at the point of use," not at context boot for a feature no other code calls yet.
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — `sendPrompt()` error mapping**
+&gt; 🔴 **Critical** — `Security &amp; validation`
+
+`GlobalExceptionHandler.handleException` uses `ex.getMessage()` verbatim as the `ProblemDetail` `detail` for any `@ResponseStatus` exception without a `reason()` — none of the five new exceptions set `reason()`. That means these messages go straight to the API client:
+
+```java
+.onStatus(status -&gt; status.is5xxServerError(), (req, res) -&gt; {
+    throw new AiCommunicationException("AI provider error: " + res.getStatusCode());
+});
+...
+mapped = new AiCommunicationException("AI request failed due to network error: " + ex.getMessage());
+```
+
+The first embeds the **raw provider HTTP status code** directly in the response body; the second embeds `ResourceAccessException.getMessage()`, which for `RestClient` I/O failures typically includes the full request URL (`https://api.groq.com/openai/v1/chat/completions`). Both violate requirement 4.7 in this PR's own design doc ("response body SHALL NOT contain... the raw HTTP status from the provider... or the word 'Groq'") and the reviewer rule against leaking internal error detail to callers.
+
+**Suggestion:**
+```java
+.onStatus(status -&gt; status.is5xxServerError(), (req, res) -&gt; {
+    throw new AiCommunicationException("The AI provider is currently unavailable");
+});
+// ...
+mapped = new AiCommunicationException("Unable to reach the AI provider");
+```
+Log the real status/exception at ERROR (which the code already does) and keep the thrown message generic.
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — double ERROR log for `AiResponseException`**
+&gt; 🟡 **Warning** — `Logic`
+
+The null/blank-content branches log an ERROR and then throw, but that same exception type is also caught by the surrounding `catch` and logged again:
+
+```java
+if (content == null || content.isBlank()) {
+    long elapsed = System.currentTimeMillis() - startTime;
+    AiResponseException ex = new AiResponseException("AI response returned null or blank content");
+    log.error("AI request failed — type: {}, elapsed: {}ms", ex.getClass().getSimpleName(), elapsed); // (1)
+    throw ex;
+}
+...
+} catch (AiAuthenticationException | AiRateLimitException | AiCommunicationException | AiResponseException ex) {
+    long elapsed = System.currentTimeMillis() - startTime;
+    log.error("AI request failed — type: {}, elapsed: {}ms", ex.getClass().getSimpleName(), elapsed); // (2) — duplicate for AiResponseException
+    throw ex;
+}
+```
+
+Every "missing/blank content" failure produces two ERROR log lines with slightly different `elapsed` values, which will confuse anyone grepping logs for failure counts.
+
+**Suggestion:** drop the inline `log.error` calls at the two throw sites and let the single `catch` block own all logging for these four exception types — that's already its job.
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — constructor / timeout handling**
+&gt; 🟡 **Warning** — `Logic`
+
+```java
+public GroqClient(AiProperties properties) {
+    this.properties = properties;
+    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+    requestFactory.setReadTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
+    ...
+}
+```
+
+Only `readTimeout` is set — `connectTimeout` is left at the JDK default (platform-dependent, can be very long or unbounded). `PistonClient` sets both from `PistonProperties`. As written, requirement 2.4 ("timeout SHALL be within 1–300s") isn't actually enforced for connection establishment — a hung DNS lookup or unreachable host can block well past the configured timeout.
+
+Also, only `401`, `429`, and `5xx` are mapped via `.onStatus()`. Any other 4xx from Groq (`400` bad request — e.g. malformed request or invalid model name, `403`, `404`) falls through to `RestClient`'s default behavior, which throws an unhandled `HttpClientErrorException` — not caught by this method's `catch` clauses — and ends up in `GlobalExceptionHandler`'s generic `Exception` handler as an opaque 500, bypassing all five purpose-built AI exceptions.
+
+**Suggestion:**
+```java
+requestFactory.setConnectTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
+requestFactory.setReadTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
+```
+and add a catch-all `onStatus(HttpStatusCode::isError, ...)` (or catch `RestClientResponseException` broadly, as `CodeExecutionServiceImpl.callPiston` does) mapping any unmapped error status to `AiCommunicationException`.
+
+---
+
+**`recruitment-be/src/test/java/com/psybergate/recruitment/ai/AiServiceImplTest.java` — coverage scope**
+&gt; 🔴 **Critical** — `Test quality`
+
+This is the only test class in the PR, and it exercises `AiServiceImpl` only — a 9-line pass-through wrapper. `GroqClient`, which owns all the real logic (HTTP calls, status-code mapping, timeout classification, content extraction, and — critically — the logging redaction rules for the API key and prompt content), has **zero tests**. The PR's own `design.md`/`tasks.md` list a `GroqClientTest` using `MockRestServiceServer`, an `AiPropertiesValidationTest`, an `AiContextTest`, and 14 jqwik property tests as required deliverables (jqwik was even added to `pom.xml` for this purpose) — none of them exist in this diff. Given the AiProperties startup bug and the message-leakage bug above, tests against the real `GroqClient`/`AiProperties` wiring would very likely have caught both.
+
+**Suggestion:** at minimum, add a `GroqClientTest` with `MockRestServiceServer` covering the 401/429/5xx/timeout/blank-content branches and asserting the resulting `ex.getMessage()` never contains "Groq" or the raw status code, plus one `@SpringBootTest`-style test asserting the context actually starts with the shipped `application.yaml` defaults (which would have caught the `apiKey` issue immediately).
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiServiceImpl.java` / `AiService.java` / `client/AiClient.java`**
+&gt; 🟢 **Good** — `OOP &amp; SOLID / Layered architecture`
+
+```java
+@Service
+@Primary
+@RequiredArgsConstructor
+public class AiServiceImpl implements AiService {
+    private final AiClient aiClient;
+
+    @Override
+    public String prompt(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("Prompt must not be null or blank");
+        }
+        return aiClient.sendPrompt(prompt);
+    }
+}
+```
+
+Clean separation: `AiService` is the interface future business services depend on, `AiClient` is a provider-agnostic seam, and `GroqClient` is the only class that knows about Groq specifics. Constructor injection via `@RequiredArgsConstructor`, no field-level `@Autowired`, no business logic bleeding into the controller layer (there isn't one yet), and no `instanceof` chains. This is exactly the shape `PistonProperties → PistonClient → CodeExecutionService` established.
+
+---
+
+**`.kiro/specs/ai-integration-foundation/*`, `.kiro/steering/project.md`**
+&gt; 🔵 **Info** — `Convention`
+
+This PR commits ~880 lines of Kiro spec-workflow artifacts (`design.md`, `requirements.md`, `tasks.md`, `steering/project.md`). This repo's `CLAUDE.md` states the project uses **OpenSpec** (`openspec/config.yaml`, `/openspec-new-change`) for spec-driven development, not Kiro — these are two different tools' artifacts living side by side. Worth confirming with the team whether `.kiro/` is an intentional parallel workflow or should be `.gitignore`d before merge; either way it's a lot of non-code content riding along with a scaffolding PR.
+
+---
+
+One more, out of scope for this PR per the task but worth a note since it's directly related: `docker-compose.yml`'s backend `environment:` block still has no `GROQ_API_KEY`/`GROQ_BASE_URL`/`GROQ_MODEL` entries (compare to how `PISTON_BASE_URL` is wired for the `piston` service), and there's no README/deployment doc update. Given the `AiProperties` startup issue above, running `docker compose up --build` today would crash the backend container. Not blocking for this PR if it's tracked separately (ATR2-9), but it compounds the `@NotBlank apiKey` bug into a full local-stack breakage until both are fixed together.
+
+---
+
+### Scores
+
+| Dimension | Score |
+|---|---|
+| Logic | 3/10 |
+| OOP &amp; SOLID | 8/10 |
+| Layered architecture | 8/10 |
+| JPA &amp; domain model | N/A — no entities/JPA touched |
+| Spring conventions | 5/10 |
+| Security &amp; validation | 4/10 |
+
+---
+
+Relevant files reviewed:
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiProperties.java`
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiServiceImpl.java`, `AiService.java`
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java`, `AiClient.java`
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/dto/*.java`
+- `recruitment-be/src/main/resources/application.yaml`
+- `recruitment-be/src/test/java/com/psybergate/recruitment/ai/AiServiceImplTest.java`
+- Compared against `recruitment-be/src/main/java/com/psybergate/recruitment/execution/PistonClient.java`, `PistonProperties.java`, `CodeExecutionServiceImpl.java`, and `recruitment-be/src/main/java/com/psybergate/recruitment/common/GlobalExceptionHandler.java`
+- Verified failure via `./mvnw -Dtest=AuthControllerIntegrationTest test` on the checked-out `feature/ai-groq-integration` branch (surefire report at `recruitment-be/target/surefire-reports/com.psybergate.recruitment.auth.AuthControllerIntegrationTest.txt`)</result>
+<usage><subagent_tokens>116955</subagent_tokens><tool_uses>31</tool_uses><duration_ms>649136</duration_ms></usage>
+</task-notification>
+
+---
+
+## 2026-08-11 12:58 | nkosinathi.phiri | in: 4 out: 1517 | cache_read: 165497 cache_write: 1446
+
+> post the critical ones only
+
+---
+
+## 2026-08-11 12:59 | nkosinathi.phiri | in: 8 out: 828 | cache_read: 338834 cache_write: 1104
+
+> check on the ATR2-9 ticket implementation status too
+
+---
+
+## 2026-08-11 13:01 | nkosinathi.phiri | in: 2 out: 550 | cache_read: 85744 cache_write: 13
+
+> what are the not implemented tickets about
+
+---
+
+## 2026-08-11 13:02 | nkosinathi.phiri | in: 4 out: 547 | cache_read: 172627 cache_write: 558
+
+> post on the pr that these are not handles
+
+---
+
+## 2026-08-11 13:08 | nkosinathi.phiri | in: 4 out: 1076 | cache_read: 173837 cache_write: 6347
+
+> pull tickets that are assinged to me from the board
+
+---
+
+## 2026-08-11 13:42 | nkosinathi.phiri | in: 10 out: 1657 | cache_read: 475352 cache_write: 5136
+
+> check if pr is updated
+
+---
+
+## 2026-08-11 13:54 | nkosinathi.phiri | in: 4 out: 721 | cache_read: 198945 cache_write: 5038
+
+> pull the tickets that are assigned to me that are in progressed
+
+---
+
+## 2026-08-11 13:55 | nkosinathi.phiri | in: 4 out: 655 | cache_read: 209857 cache_write: 6873
+
+> group them in epics
+
+---
+
+## 2026-08-11 13:57 | nkosinathi.phiri | in: 6 out: 1126 | cache_read: 338767 cache_write: 10557
+
+> go through epic 2 explain what it is about
+
+---
+
+## 2026-08-11 14:02 | nkosinathi.phiri | in: 4 out: 415 | cache_read: 246963 cache_write: 565
+
+> check the status of PR #1
+
+---
+
+## 2026-08-12 09:39 | nkosinathi.phiri | in: 18 out: 4396 | cache_read: 1333876 cache_write: 7804
+
+> continue
+
+---
+
+## 2026-08-12 10:03 | nkosinathi.phiri | in: 6 out: 581 | cache_read: 458123 cache_write: 734
+
+> what is this file about recruitment-be/.jqwik-database
+
+---
+
+## 2026-08-12 10:05 | nkosinathi.phiri | in: 10 out: 644 | cache_read: 768327 cache_write: 1100
+
+> yes, add it
+
+---
+
