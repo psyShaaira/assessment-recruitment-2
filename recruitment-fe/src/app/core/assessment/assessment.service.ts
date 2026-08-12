@@ -4,6 +4,8 @@ import { Observable } from 'rxjs';
 import {
   AddQuestionRequest,
   Assessment,
+  AssemblyQuota,
+  AssemblySuggestionResponse,
   AssessmentDetail,
   AssessmentPreview,
   AssessmentRequest,
@@ -54,6 +56,10 @@ export class AssessmentService {
       ? new HttpHeaders({ Authorization: `Bearer ${token}` })
       : new HttpHeaders();
     return this.http.get<AssessmentPreview>(`/api/assessments/${assessmentId}/preview`, { headers });
+  }
+
+  suggestQuestions(quotas: AssemblyQuota[]): Observable<AssemblySuggestionResponse> {
+    return this.http.post<AssemblySuggestionResponse>('/api/assessments/suggest-questions', { quotas });
   }
 
   verifyPassword(assessmentId: string, password: string, invitationToken: string): Observable<{ valid: boolean }> {

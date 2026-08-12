@@ -3,7 +3,9 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin, of } from 'rxjs';
 import { QuestionService } from '../../core/question/question.service';
-import { Difficulty, Question, QuestionType } from '../../core/question/question.model';
+import { Difficulty, Question, QuestionRequest, QuestionType } from '../../core/question/question.model';
+import { AiService } from '../../core/ai/ai.service';
+import { ToastService } from '../../core/toast/toast.service';
 
 interface NewSubQuestionDraft {
   type: 'MCQ' | 'TEXT' | 'CODE_SUBMISSION';
@@ -55,6 +57,60 @@ type SubQuestionEntry =
                 }
               </div>
             </div>
+
+            @if (form.get('type')?.value !== 'GROUP') {
+              <div class="ai-panel">
+                <div class="ai-panel-header">
+                  <span class="ai-panel-title">✨ Generate with AI</span>
+                </div>
+                <div class="ai-panel-body">
+                  <div class="field">
+                    <label class="field-label">Topic <span class="required">*</span></label>
+                    <input class="field-input" [value]="aiTopic()"
+                      (input)="aiTopic.set($any($event.target).value)"
+                      placeholder="e.g. Java streams, SQL joins, binary search"/>
+                  </div>
+                  <div class="ai-panel-row">
+                    <div class="field" style="flex: 1;">
+                      <label class="field-label">Difficulty</label>
+                      <div class="type-selector">
+                        @for (d of aiDifficultyOptions; track d.value) {
+                          <button type="button" class="type-btn"
+                            [class.active]="aiDifficulty() === d.value"
+                            (click)="aiDifficulty.set(d.value)">{{ d.label }}</button>
+                        }
+                      </div>
+                    </div>
+                    <div class="field" style="max-width: 90px;">
+                      <label class="field-label">Count</label>
+                      <input type="number" class="field-input" [value]="aiCount()"
+                        (input)="aiCount.set(+$any($event.target).value)" min="1" max="5"/>
+                    </div>
+                  </div>
+                  <button type="button" class="btn btn-secondary"
+                    [disabled]="aiGenerating() || !aiTopic().trim()"
+                    (click)="generateWithAi()">
+                    {{ aiGenerating() ? 'Generating…' : 'Generate' }}
+                  </button>
+
+                  @if (aiDrafts().length > 0) {
+                    <div class="ai-draft-nav">
+                      <span>Draft {{ aiDraftIndex() + 1 }} of {{ aiDrafts().length }} — applied to the form below for review</span>
+                      @if (aiDrafts().length > 1) {
+                        <div class="ai-draft-nav-btns">
+                          <button type="button" class="btn btn-ghost btn-sm"
+                            [disabled]="aiDraftIndex() === 0"
+                            (click)="showAiDraft(aiDraftIndex() - 1)">← Prev</button>
+                          <button type="button" class="btn btn-ghost btn-sm"
+                            [disabled]="aiDraftIndex() === aiDrafts().length - 1"
+                            (click)="showAiDraft(aiDraftIndex() + 1)">Next →</button>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
 
             <div class="field">
               <label class="field-label">Question Title <span class="required">*</span></label>
@@ -552,6 +608,23 @@ type SubQuestionEntry =
       color: var(--danger); font-size: 13px; margin-bottom: 16px;
     }
 
+    /* AI generation panel */
+    .ai-panel {
+      margin-bottom: 20px; padding: 14px;
+      border: 1px solid var(--accent); border-radius: var(--radius-sm);
+      background: var(--accent-subtle);
+    }
+    .ai-panel-header { margin-bottom: 10px; }
+    .ai-panel-title { font-size: 13px; font-weight: 600; color: var(--accent); }
+    .ai-panel-body .field { margin-bottom: 10px; }
+    .ai-panel-row { display: flex; gap: 10px; }
+    .ai-draft-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-top: 10px; padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,.1); font-size: 12px; color: var(--text-2);
+    }
+    .ai-draft-nav-btns { display: flex; gap: 6px; flex-shrink: 0; }
+
     .form-actions {
       display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;
       padding-top: 16px; border-top: 1px solid var(--border);
@@ -560,6 +633,8 @@ type SubQuestionEntry =
 })
 export class QuestionFormComponent implements OnInit {
   private readonly svc = inject(QuestionService);
+  private readonly aiSvc = inject(AiService);
+  private readonly toastSvc = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -568,6 +643,20 @@ export class QuestionFormComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly mcqError = signal<string | null>(null);
+
+  // ── AI generation state ─────────────────────────────────────────────────
+  readonly aiTopic = signal('');
+  readonly aiDifficulty = signal<Difficulty>('MEDIUM');
+  readonly aiCount = signal(1);
+  readonly aiGenerating = signal(false);
+  readonly aiDrafts = signal<QuestionRequest[]>([]);
+  readonly aiDraftIndex = signal(0);
+
+  readonly aiDifficultyOptions: { value: Difficulty; label: string }[] = [
+    { value: 'EASY', label: 'Easy' },
+    { value: 'MEDIUM', label: 'Medium' },
+    { value: 'HARD', label: 'Hard' },
+  ];
 
   // ── GROUP-specific state ────────────────────────────────────────────────
   readonly allQuestions = signal<Question[]>([]);
@@ -810,6 +899,75 @@ export class QuestionFormComponent implements OnInit {
 
   optionLetter(i: number): string {
     return String.fromCharCode(65 + i);
+  }
+
+  // ── AI generation ───────────────────────────────────────────────────────
+
+  generateWithAi() {
+    const topic = this.aiTopic().trim();
+    if (!topic) return;
+
+    const type = this.form.get('type')!.value as QuestionType;
+
+    this.aiGenerating.set(true);
+    this.aiSvc.generateQuestions({
+      type,
+      topic,
+      difficulty: this.aiDifficulty(),
+      count: this.aiCount(),
+    }).subscribe({
+      next: drafts => {
+        this.aiGenerating.set(false);
+        this.aiDrafts.set(drafts);
+        this.aiDraftIndex.set(0);
+        this.applyAiDraft(drafts[0]);
+        this.toastSvc.show(
+          `Generated ${drafts.length} question${drafts.length > 1 ? 's' : ''} — review and edit before saving.`,
+          'success'
+        );
+      },
+      error: err => {
+        this.aiGenerating.set(false);
+        this.toastSvc.show(this.friendlyAiError(err), 'error');
+      },
+    });
+  }
+
+  showAiDraft(index: number) {
+    this.aiDraftIndex.set(index);
+    this.applyAiDraft(this.aiDrafts()[index]);
+  }
+
+  private applyAiDraft(draft: QuestionRequest) {
+    this.form.patchValue({
+      title: draft.title,
+      body: draft.body,
+      tagsRaw: (draft.tags ?? []).join(', '),
+      languageHint: draft.languageHint ?? '',
+      difficulty: draft.difficulty ?? null,
+    });
+
+    if (draft.type === 'MCQ' && draft.options) {
+      this.options.clear();
+      draft.options.forEach(o => this.options.push(this.makeOption(o.text, o.correct)));
+      this.mcqError.set(null);
+    }
+  }
+
+  private friendlyAiError(err: { status?: number; error?: { detail?: string } }): string {
+    switch (err?.status) {
+      case 503:
+        return 'The AI provider is rate-limited right now — wait a moment and try again.';
+      case 502:
+        return 'Could not reach the AI provider. Try again shortly.';
+      case 504:
+        return 'The AI provider took too long to respond. Try again.';
+      case 422:
+      case 400:
+        return err.error?.detail ?? 'The AI could not generate a usable question. Try again.';
+      default:
+        return 'Failed to generate a question. Try again.';
+    }
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────

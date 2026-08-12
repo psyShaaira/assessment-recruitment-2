@@ -1807,3 +1807,458 @@ An `ai` package already exists: `com.psybergate.recruitment.ai.AiService` (`Stri
 
 ---
 
+## 2026-08-12 12:28 | nkosinathi.phiri | in: 8 out: 1358 | cache_read: 1377901 cache_write: 1690
+
+> run all the tests to make sure nothing else broke
+
+---
+
+## 2026-08-12 13:49 | nkosinathi.phiri | in: 2859 out: 1816 | cache_read: 1041551 cache_write: 8021
+
+> continue with ATR2-14 and ATR2-15
+
+---
+
+## 2026-08-12 13:52 | nkosinathi.phiri | in: 142 out: 21116 | cache_read: 34079448 cache_write: 488951
+
+> <task-notification>
+<task-id>a40b6fcbdaf8d63a8</task-id>
+<tool-use-id>toolu_01Vc6fgWH3bm3ym2gxZvXdpN</tool-use-id>
+<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\f5129d38-3bc1-4fab-b93b-b584c00ea11c\tasks\a40b6fcbdaf8d63a8.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore Angular frontend structure for AI features" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All the information is gathered. Here's the precise current state.
+
+## 1. `core/ai/ai.service.ts` — does not exist
+
+No `core/ai/` directory exists in the repo. Closest sibling pattern to mirror: **`recruitment-fe/src/app/core/question/question.service.ts`** (full content):
+
+```ts
+import { inject, Injectable } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { Question, QuestionRequest } from './question.model';
+
+@Injectable({ providedIn: 'root' })
+export class QuestionService {
+  private readonly http = inject(HttpClient);
+
+  // ── Questions ─────────────────────────────────────────────────────────────
+
+  listQuestions(type?: string, tag?: string): Observable&lt;Question[]&gt; {
+    let params = new HttpParams();
+    if (type) params = params.set('type', type);
+    if (tag) params = params.set('tag', tag);
+    return this.http.get&lt;Question[]&gt;('/api/questions', { params });
+  }
+
+  getQuestion(id: string): Observable&lt;Question&gt; {
+    return this.http.get&lt;Question&gt;(`/api/questions/${id}`);
+  }
+
+  createQuestion(req: QuestionRequest): Observable&lt;Question&gt; {
+    return this.http.post&lt;Question&gt;('/api/questions', req);
+  }
+
+  updateQuestion(id: string, req: QuestionRequest): Observable&lt;Question&gt; {
+    return this.http.put&lt;Question&gt;(`/api/questions/${id}`, req);
+  }
+
+  deleteQuestion(id: string): Observable&lt;void&gt; {
+    return this.http.delete&lt;void&gt;(`/api/questions/${id}`);
+  }
+
+  // ── Tags ──────────────────────────────────────────────────────────────────
+
+  listTags(): Observable&lt;string[]&gt; {
+    return this.http.get&lt;string[]&gt;('/api/tags');
+  }
+}
+```
+
+Pattern: `private readonly http = inject(HttpClient)`, `@Injectable({ providedIn: 'root' })`, methods return typed `Observable&lt;T&gt;` calling `this.http.get/post/put/delete&lt;T&gt;('/api/...')`, no try/catch — errors propagate to caller's `.subscribe({ error: ... })`. `AssessmentService` (`core/assessment/assessment.service.ts`) follows the identical style, including one method using `HttpHeaders` for an optional bearer token — useful reference if the AI endpoint needs custom headers.
+
+## 2. `features/questions/question-form.component.ts` — exists, inline template, reactive forms
+
+Full path: `recruitment-fe/src/app/features/questions/question-form.component.ts` (936 lines, no separate `.html`/`.css` — template and styles are inline in the `@Component` decorator, `standalone` component with `imports: [ReactiveFormsModule, RouterLink]`).
+
+Form model — **Reactive Forms** via `FormBuilder`:
+```ts
+readonly form = this.fb.group({
+  type: ['MCQ' as QuestionType, Validators.required],
+  title: ['', Validators.required],
+  body: ['', Validators.required],
+  tagsRaw: [''],
+  languageHint: [''],
+  maxScore: [1, [Validators.required, Validators.min(1)]],
+  difficulty: [null as Difficulty | null],
+  options: this.fb.array([this.makeOption('', true), this.makeOption('', false)]),
+});
+```
+Plus a second inline mini-form for GROUP sub-questions, `newSubForm`, with the same shape minus `tagsRaw`/`difficulty`.
+
+Submit flow — `submit()`:
+- Non-GROUP types build a `payload` object and call `this.svc.updateQuestion(id, payload)` or `this.svc.createQuestion(payload)` (from `QuestionService`, injected as `svc`).
+- GROUP type goes through a two-phase `submitGroup()`: first `forkJoin` of `svc.createQuestion(...)` calls for any new inline sub-question drafts, then a final `svc.createQuestion({ type: 'GROUP', title, body, tags, difficulty, memberQuestionIds })`.
+
+Payload shape for non-GROUP (matches `QuestionRequest` exactly):
+```ts
+const payload = {
+  type,
+  title: this.form.get('title')!.value!,
+  body: this.form.get('body')!.value!,
+  tags,
+  maxScore: this.form.get('maxScore')!.value ?? 1,
+  difficulty,
+  ...(type === 'MCQ' &amp;&amp; { options: this.options.value }),
+  ...(type === 'CODE_SUBMISSION' &amp;&amp; { languageHint: this.form.get('languageHint')!.value ?? undefined }),
+};
+```
+GROUP payload:
+```ts
+const payload = {
+  type: 'GROUP' as QuestionType,
+  title: this.form.get('title')!.value!,
+  body: this.form.get('body')!.value!,
+  tags,
+  difficulty,
+  memberQuestionIds,
+};
+```
+Error handling on submit: `error: err =&gt; this.error.set(err?.error?.detail ?? 'Failed to save question.')` — reads backend's `detail` field, falls back to a generic string, sets a local `error` signal shown in an `@if (error()) { &lt;div class="error-banner"&gt; }` block (no toast usage here).
+
+`QuestionRequest` DTO (in `core/question/question.model.ts`):
+```ts
+export interface QuestionRequest {
+  type: QuestionType;
+  title: string;
+  body: string;
+  tags: string[];
+  options?: { text: string; correct: boolean }[];
+  languageHint?: string;
+  memberQuestionIds?: string[];
+  maxScore?: number;
+  difficulty?: Difficulty | null;
+}
+```
+This already matches the ticket's mentioned shape (type, title, body, tags, options, languageHint, memberQuestionIds, maxScore, difficulty) — any new AI-generation request/response types should reuse/extend this rather than re-declare fields.
+
+## 3. `toast.service.ts` — full content
+
+`recruitment-fe/src/app/core/toast/toast.service.ts`:
+```ts
+import { Injectable, signal } from '@angular/core';
+
+export type ToastType = 'info' | 'warning' | 'error' | 'success';
+
+export interface Toast {
+  id: number;
+  message: string;
+  type: ToastType;
+}
+
+@Injectable({ providedIn: 'root' })
+export class ToastService {
+  readonly toasts = signal&lt;Toast[]&gt;([]);
+  private nextId = 0;
+
+  show(message: string, type: ToastType = 'info') {
+    const id = ++this.nextId;
+    this.toasts.update(t =&gt; [...t, { id, message, type }]);
+    setTimeout(() =&gt; this.dismiss(id), 4000);
+  }
+
+  dismiss(id: number) {
+    this.toasts.update(t =&gt; t.filter(toast =&gt; toast.id !== id));
+  }
+}
+```
+Public API is just `show(message: string, type: ToastType = 'info')` and `dismiss(id)` — there is **no** `toast.success(...)`/`toast.error(...)` convenience wrapper; callers pass the type explicitly as the second arg, e.g. `'success'`, `'warning'`, `'error'`.
+
+Example usage — `recruitment-fe/src/app/features/candidates/candidates.component.ts` (injected as `private readonly toastSvc = inject(ToastService)`):
+```ts
+error: err =&gt; {
+  this.inviteSending.set(false);
+  const errCode = err.error?.detail ?? err.error?.message ?? err.error;
+  if (err.status === 409 &amp;&amp; errCode === 'ASSESSMENT_ALREADY_COMPLETED') {
+    this.toastSvc.show('This candidate has already completed this assessment.', 'warning');
+  } else if (err.status === 409 &amp;&amp; errCode === 'DUPLICATE_INVITE') {
+    this.toastSvc.show('This candidate already has a pending invitation for this assessment.', 'warning');
+  } ...
+```
+and elsewhere: `this.toastSvc.show('Invitation cancelled.', 'success')`, `this.toastSvc.show('Failed to cancel invitation.', 'error')`.
+
+**No existing rate-limit special-casing goes through ToastService.** The only 429-specific handling in the app is in `recruitment-fe/src/app/shared/code-runner/code-runner-panel.component.ts`, and it does **not** use toast — it sets a local `errorMsg` signal via a `friendlyError(status)` switch:
+```ts
+private friendlyError(status: number | undefined): string {
+  switch (status) {
+    case 429:
+      return 'The execution engine is busy — wait a moment and try again.';
+    case 503:
+      return 'The code execution service is unavailable right now. Your code is still saved.';
+    default:
+      return 'Could not run your code. Your answer is still saved — try again shortly.';
+  }
+}
+```
+If the AI ticket wants a "rate limit" toast, there's no existing precedent to mirror exactly — the closest pattern is this `friendlyError`-by-status-code switch, adapted to call `toastSvc.show(msg, 'warning')` instead of a local signal.
+
+## 4. `features/assessments/assessment-builder.component.ts` — full content confirmed, has a randomisation quota step already
+
+Path: `recruitment-fe/src/app/features/assessments/assessment-builder.component.ts` (1150 lines, inline template/styles, standalone, 3-step wizard: `step: signal&lt;1|2|3&gt;`).
+
+**Step 3 ("Settings") already contains a quota UI** under "Randomisation":
+```html
+&lt;div class="settings-card"&gt;
+  &lt;span class="settings-section-label"&gt;Randomisation&lt;/span&gt;
+  &lt;label class="toggle-label"&gt;
+    &lt;div class="toggle" [class.on]="randomiseQuestions()" (click)="randomiseQuestions.set(!randomiseQuestions())"&gt;
+      &lt;div class="toggle-thumb"&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    Randomise questions — serve a random subset per candidate
+  &lt;/label&gt;
+  @if (randomiseQuestions()) {
+    &lt;div class="quota-grid"&gt;
+      @for (type of questionTypesInAssessment(); track type) {
+        &lt;div class="quota-row"&gt;
+          &lt;span class="quota-type-label"&gt;{{ typeLabelMap[type] }}&lt;/span&gt;
+          &lt;span class="quota-available"&gt;/ {{ questionCountByType()[type] }} available&lt;/span&gt;
+          &lt;input type="number" class="field-input quota-input"
+            [value]="randomisationQuotas()[type] || 0"
+            (input)="setQuota(type, +$any($event.target).value)"
+            min="0" [max]="questionCountByType()[type]"/&gt;
+        &lt;/div&gt;
+      }
+      @if (questionTypesInAssessment().length === 0) {
+        &lt;p class="quota-empty"&gt;Add questions in Step 2 first.&lt;/p&gt;
+      }
+    &lt;/div&gt;
+  }
+&lt;/div&gt;
+```
+This quota step is **quota-by-question-type only** (MCQ/TEXT/CODE_SUBMISSION/GROUP counts), not by tag or difficulty — there is no tag- or difficulty-based quota UI anywhere in this component despite `Difficulty` being imported and used for the bank filter dropdown (`bankDifficulty`, `bankDifficultyFilters`). If the ticket wants tag/difficulty quotas, that's new, not existing.
+
+State/model backing it:
+```ts
+readonly randomiseQuestions = signal(false);
+readonly randomisationQuotas = signal&lt;Record&lt;QuestionType, number&gt;&gt;({} as Record&lt;QuestionType, number&gt;);
+readonly questionTypesInAssessment = computed(...); // distinct types currently in the assessment
+readonly questionCountByType = computed(...);       // count of bank-available questions per type
+setQuota(type: QuestionType, value: number) {
+  this.randomisationQuotas.update(q =&gt; ({ ...q, [type]: value }));
+}
+```
+On save (`finish()` and `saveBasicInfo()`), quotas are converted to the `RandomisationQuota[]` shape and sent as part of `AssessmentRequest`:
+```ts
+const randomisationQuotas: RandomisationQuota[] = this.randomiseQuestions()
+  ? (Object.entries(quotaMap) as [QuestionType, number][])
+      .filter(([, count]) =&gt; count &gt; 0)
+      .map(([questionType, count]) =&gt; ({ questionType, count }))
+  : [];
+```
+where `RandomisationQuota` (in `core/assessment/assessment.model.ts`) is:
+```ts
+export interface RandomisationQuota {
+  questionType: QuestionType;
+  count: number;
+}
+```
+
+**Adding questions to an assessment** (Step 2, "Questions"):
+- Browsing/filtering the bank uses `filteredBank` computed over `allQuestions` (loaded via `this.questionService.listQuestions()` in `ngOnInit`), filterable by `bankType`, `bankDifficulty`, `bankSearch`.
+- `addQuestion(questionId: string)` calls `this.assessmentService.addQuestion(assessmentId, { questionId, displayOrder: order })` → `POST /api/assessments/{id}/questions`, then replaces the local `assessment` signal with the response.
+- `removeQuestion(questionId)` calls `this.assessmentService.removeQuestion(assessmentId, questionId)` → `DELETE /api/assessments/{id}/questions/{questionId}`.
+- Reordering via CDK drag-drop (`drop()`) mutates local state and marks `orderChanged`; actual persistence happens later in `finish()` via `this.assessmentService.reorderQuestions(...)`.
+
+Basic-info form (Step 1) is a separate small reactive form:
+```ts
+readonly form = this.fb.nonNullable.group({
+  title: ['', Validators.required],
+  description: [''],
+  timeLimitMinutes: [60, [Validators.required, Validators.min(0)]],
+});
+```
+plus plain signals for `passingScore`, `accessType`, `accessPassword`, `startDate`, `endDate` (not part of the reactive `FormGroup`).
+
+## 5. HTTP client services for `/api/assessments` and `/api/questions`
+
+Both already read above in full — repeating pointers:
+- `recruitment-fe/src/app/core/question/question.service.ts` → `QuestionService` (see §1 for full content).
+- `recruitment-fe/src/app/core/assessment/assessment.service.ts` → `AssessmentService`, full content:
+```ts
+import { inject, Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import {
+  AddQuestionRequest,
+  Assessment,
+  AssessmentDetail,
+  AssessmentPreview,
+  AssessmentRequest,
+} from './assessment.model';
+
+@Injectable({ providedIn: 'root' })
+export class AssessmentService {
+  private readonly http = inject(HttpClient);
+
+  listAssessments(): Observable&lt;Assessment[]&gt; {
+    return this.http.get&lt;Assessment[]&gt;('/api/assessments');
+  }
+
+  getAssessment(id: string): Observable&lt;AssessmentDetail&gt; {
+    return this.http.get&lt;AssessmentDetail&gt;(`/api/assessments/${id}`);
+  }
+
+  createAssessment(req: AssessmentRequest): Observable&lt;AssessmentDetail&gt; {
+    return this.http.post&lt;AssessmentDetail&gt;('/api/assessments', req);
+  }
+
+  updateAssessment(id: string, req: AssessmentRequest): Observable&lt;AssessmentDetail&gt; {
+    return this.http.put&lt;AssessmentDetail&gt;(`/api/assessments/${id}`, req);
+  }
+
+  deleteAssessment(id: string): Observable&lt;void&gt; {
+    return this.http.delete&lt;void&gt;(`/api/assessments/${id}`);
+  }
+
+  publishAssessment(id: string): Observable&lt;AssessmentDetail&gt; {
+    return this.http.put&lt;AssessmentDetail&gt;(`/api/assessments/${id}/publish`, {});
+  }
+
+  addQuestion(assessmentId: string, req: AddQuestionRequest): Observable&lt;AssessmentDetail&gt; {
+    return this.http.post&lt;AssessmentDetail&gt;(`/api/assessments/${assessmentId}/questions`, req);
+  }
+
+  removeQuestion(assessmentId: string, questionId: string): Observable&lt;void&gt; {
+    return this.http.delete&lt;void&gt;(`/api/assessments/${assessmentId}/questions/${questionId}`);
+  }
+
+  reorderQuestions(assessmentId: string, order: { questionId: string; displayOrder: number }[]): Observable&lt;AssessmentDetail&gt; {
+    return this.http.put&lt;AssessmentDetail&gt;(`/api/assessments/${assessmentId}/questions/order`, { questions: order });
+  }
+
+  getPreview(assessmentId: string, token?: string): Observable&lt;AssessmentPreview&gt; {
+    const headers = token
+      ? new HttpHeaders({ Authorization: `Bearer ${token}` })
+      : new HttpHeaders();
+    return this.http.get&lt;AssessmentPreview&gt;(`/api/assessments/${assessmentId}/preview`, { headers });
+  }
+
+  verifyPassword(assessmentId: string, password: string, invitationToken: string): Observable&lt;{ valid: boolean }&gt; {
+    return this.http.post&lt;{ valid: boolean }&gt;(
+      `/api/candidate/assessments/${assessmentId}/verify-password`,
+      { password, invitationToken }
+    );
+  }
+}
+```
+Both services: no interceptor-level try/catch inside the service itself — errors propagate as `HttpErrorResponse` for the calling component's `.subscribe({ error })` to handle (as seen in `err?.error?.detail` and `err.status === 409` checks above).
+
+## 6. Existing Vitest test convention — full example
+
+No spec file exists for `question-form.component.ts`, `assessment-builder.component.ts`, `question.service.ts`, or `assessment.service.ts` specifically. The closest same-pattern example is `recruitment-fe/src/app/core/candidate/candidate.service.spec.ts` (full content):
+```ts
+import { TestBed } from '@angular/core/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { CandidateService } from './candidate.service';
+import { CandidateHistoryItem } from './candidate.model';
+import { throwError } from 'rxjs';
+
+const mockHistoryItem: CandidateHistoryItem = {
+  invitationId: 'inv-1',
+  assessmentId: 'a-1',
+  assessmentName: 'Java Assessment',
+  invitedAt: '2026-05-01T10:00:00Z',
+  submissionId: 's-1',
+  status: 'SUBMITTED',
+  submittedAt: '2026-05-02T10:00:00Z',
+  totalScore: 15,
+  markingStatus: 'FULLY_MARKED',
+  linkedRole: null,
+};
+
+describe('CandidateService — getHistory', () =&gt; {
+  let service: CandidateService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() =&gt; {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(CandidateService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() =&gt; httpMock.verify());
+
+  it('getHistory sends GET /api/candidates/{id}/history', () =&gt; {
+    service.getHistory('cand-1').subscribe(items =&gt; {
+      expect(items.length).toBe(1);
+      expect(items[0].assessmentName).toBe('Java Assessment');
+      expect(items[0].status).toBe('SUBMITTED');
+    });
+    const req = httpMock.expectOne('/api/candidates/cand-1/history');
+    expect(req.request.method).toBe('GET');
+    req.flush([mockHistoryItem]);
+  });
+  // ... plus empty-array and error-propagation cases
+});
+```
+Convention: no `HttpClientTestingModule`, uses standalone `provideHttpClient()` + `provideHttpClientTesting()` providers, `TestBed.inject`, `httpMock.expectOne(url)`, `req.flush(...)`, `afterEach(() =&gt; httpMock.verify())`.
+
+## 7. Backend-DTO-mirroring TypeScript types
+
+`recruitment-fe/src/app/core/question/question.model.ts` (full content — this is the file to extend/import from for AI request/response types):
+```ts
+export type QuestionType = 'MCQ' | 'TEXT' | 'CODE_SUBMISSION' | 'GROUP';
+export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
+
+export interface QuestionOption {
+  id: string;
+  text: string;
+  correct: boolean;
+}
+
+export interface Question {
+  id: string;
+  type: QuestionType;
+  title: string;
+  body: string;
+  tags: string[];
+  options: QuestionOption[] | null;
+  languageHint: string | null;
+  memberQuestions?: Question[];
+  maxScore: number;
+  difficulty: Difficulty | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuestionRequest {
+  type: QuestionType;
+  title: string;
+  body: string;
+  tags: string[];
+  options?: { text: string; correct: boolean }[];
+  languageHint?: string;
+  memberQuestionIds?: string[];
+  maxScore?: number;
+  difficulty?: Difficulty | null;
+}
+```
+`Difficulty` and `QuestionType` are re-exported/imported by `core/assessment/assessment.model.ts` (`import { Difficulty, QuestionType } from '../question/question.model';`) rather than redeclared — new AI models should do the same (`import { Difficulty, QuestionType } from '../question/question.model'`) instead of introducing a second enum.
+
+**Summary of gaps vs. the ticket's assumptions:** `core/ai/ai.service.ts` does not exist yet (net-new file, mirror `QuestionService`); `toast.service.ts` has no `.success()/.error()` sugar and no existing rate-limit-specific toast pattern (only a non-toast 429 case in `code-runner-panel.component.ts`); the assessment builder's Step 3 "Randomisation" quota UI is type-only, not tag/difficulty-based, so a tag/difficulty quota feature is additive, not an extension of existing fields.</result>
+<usage><subagent_tokens>69334</subagent_tokens><tool_uses>21</tool_uses><duration_ms>150442</duration_ms></usage>
+</task-notification>
+
+---
+
+## 2026-08-12 14:23 | nkosinathi.phiri | in: 2 out: 1701 | cache_read: 520664 cache_write: 17
+
+> what is it that these tickets have added so i can check it
+
+---
+
