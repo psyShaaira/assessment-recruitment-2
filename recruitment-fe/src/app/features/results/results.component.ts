@@ -6,6 +6,10 @@ import { FlagService } from '../../core/flag/flag.service';
 import { FlagAuditEntry, FlagListItem, FlagReason, FlagResponse, FlagStatus } from '../../core/flag/flag.model';
 import { ReminderService } from '../../core/reminder/reminder.service';
 import { ReminderSendLogDto } from '../../core/reminder/reminder.model';
+import { HttpErrorResponse } from '@angular/common/http';
+import { FeedbackService } from '../../core/feedback/feedback.service';
+import { FeedbackReportResponse } from '../../core/feedback/feedback.model';
+import { Subscription, timeout } from 'rxjs';
 import { CodeEditorComponent } from '../../shared/code-editor/code-editor.component';
 
 @Component({
@@ -316,6 +320,69 @@ import { CodeEditorComponent } from '../../shared/code-editor/code-editor.compon
                   }
                 </div>
               </div>
+
+              <!-- Feedback Report Section -->
+              @if (result()!.markingStatus === 'FULLY_MARKED') {
+                <section class="feedback-section" [attr.aria-busy]="feedbackLoading() !== null">
+                  @if (feedbackLoading()) {
+                    <div class="feedback-loading">
+                      <span class="loading-dot"></span>
+                      {{ feedbackLoading() === 'generating' ? 'Generating feedback report…' : 'Loading feedback report…' }}
+                    </div>
+                  } @else if (feedbackError()) {
+                    <div class="feedback-error">
+                      <span>{{ feedbackError() }}</span>
+                      <button class="save-btn" (click)="retryFeedback()">Retry</button>
+                    </div>
+                  } @else if (feedbackReport()) {
+                    <!-- Report content -->
+                    <div class="feedback-header">
+                      <span class="feedback-title">Feedback Report</span>
+                      @if (feedbackReport()!.aiGenerated) {
+                        <span class="ai-badge">AI Generated</span>
+                      }
+                      <button class="save-btn secondary regenerate-btn"
+                              (click)="regenerateReport()"
+                              [disabled]="regenerating()">
+                        {{ regenerating() ? 'Regenerating…' : 'Regenerate' }}
+                      </button>
+                    </div>
+                    @if (regenerateError()) {
+                      <div class="feedback-inline-error">
+                        {{ regenerateError() }}
+                        <button class="dismiss-btn" (click)="regenerateError.set(null)">✕</button>
+                      </div>
+                    }
+                    <p class="feedback-summary">{{ feedbackReport()!.content.overallSummary }}</p>
+                    @if (feedbackReport()!.content.topics.length > 0) {
+                      <div class="feedback-topics">
+                        @for (topic of feedbackReport()!.content.topics; track topic.topic) {
+                          <div class="topic-card">
+                            <h4 class="topic-name">{{ topic.topic }}</h4>
+                            @if (topic.strengths) {
+                              <div class="topic-field"><span class="topic-label">Strengths:</span> {{ topic.strengths }}</div>
+                            }
+                            @if (topic.weaknesses) {
+                              <div class="topic-field"><span class="topic-label">Weaknesses:</span> {{ topic.weaknesses }}</div>
+                            }
+                          </div>
+                        }
+                      </div>
+                    }
+                    @if (feedbackReport()!.content.nextSteps.length > 0) {
+                      <div class="feedback-next-steps">
+                        <h4 class="next-steps-heading">Next Steps</h4>
+                        <ol class="next-steps-list">
+                          @for (step of feedbackReport()!.content.nextSteps; track step) {
+                            <li>{{ step }}</li>
+                          }
+                        </ol>
+                      </div>
+                    }
+                    <div class="feedback-meta">Generated: {{ formatDateTime(feedbackReport()!.generatedAt) }}</div>
+                  }
+                </section>
+              }
 
               <!-- Per-question answers -->
               <div class="answers-title">
@@ -839,6 +906,116 @@ import { CodeEditorComponent } from '../../shared/code-editor/code-editor.compon
       background: var(--info-subtle); color: var(--info);
     }
     .reminder-type-badge.type-auto { background: var(--accent-subtle); color: var(--accent); }
+
+    .feedback-section {
+      margin: 0 0 14px;
+      padding: 16px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+    }
+
+    .feedback-loading {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text-2);
+    }
+
+    .loading-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+
+    .feedback-header {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    }
+
+    .feedback-title {
+      font-size: 14px; font-weight: 600; color: var(--text-1);
+    }
+
+    .ai-badge {
+      font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+      background: var(--accent-subtle); color: var(--accent);
+      font-weight: 600;
+    }
+
+    .regenerate-btn {
+      margin-left: auto;
+    }
+
+    .feedback-summary {
+      font-size: 13px; color: var(--text-2); line-height: 1.6;
+      margin: 0 0 14px;
+    }
+
+    .feedback-topics {
+      margin-bottom: 14px;
+    }
+
+    .topic-card {
+      padding: 12px 14px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+    }
+
+    .topic-name {
+      font-size: 13px; font-weight: 600; color: var(--text-1); margin: 0 0 8px;
+    }
+
+    .topic-label {
+      font-weight: 600; color: var(--text-2);
+    }
+
+    .topic-field {
+      font-size: 12.5px; color: var(--text-2); margin-bottom: 4px; line-height: 1.5;
+    }
+
+    .feedback-next-steps {
+      margin-bottom: 14px;
+    }
+
+    .next-steps-heading {
+      font-size: 13px; font-weight: 600; color: var(--text-1); margin: 0 0 8px;
+    }
+
+    .next-steps-list {
+      font-size: 12.5px; color: var(--text-2); padding-left: 20px; margin: 0;
+      line-height: 1.6;
+    }
+
+    .feedback-meta {
+      font-size: 11.5px; color: var(--text-3); margin-top: 10px;
+    }
+
+    .feedback-error {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--danger);
+    }
+
+    .feedback-inline-error {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--danger);
+      background: var(--danger-subtle, rgba(220, 38, 38, 0.08));
+      padding: 6px 10px; border-radius: var(--radius-sm);
+      margin-bottom: 10px;
+    }
+
+    .dismiss-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); font-size: 14px; padding: 0 4px;
+      line-height: 1;
+    }
+    .dismiss-btn:hover { color: var(--text-1); }
   `],
 })
 export class ResultsComponent implements OnInit {
@@ -846,6 +1023,7 @@ export class ResultsComponent implements OnInit {
   private readonly flagSvc = inject(FlagService);
   private readonly reminderSvc = inject(ReminderService);
   private readonly route = inject(ActivatedRoute);
+  private readonly feedbackSvc = inject(FeedbackService);
 
   readonly submissions = signal<SubmissionSummary[]>([]);
   readonly selectedSummary = signal<SubmissionSummary | null>(null);
@@ -873,6 +1051,14 @@ export class ResultsComponent implements OnInit {
   readonly reminderSending = signal(false);
   readonly reminderSuccess = signal(false);
   readonly reminderHistory = signal<ReminderSendLogDto[]>([]);
+
+  // Feedback state
+  readonly feedbackReport = signal<FeedbackReportResponse | null>(null);
+  readonly feedbackLoading = signal<'fetching' | 'generating' | null>(null);
+  readonly feedbackError = signal<string | null>(null);
+  readonly regenerating = signal(false);
+  readonly regenerateError = signal<string | null>(null);
+  private feedbackSub?: Subscription;
 
   readonly editScores = signal<Record<string, number | undefined>>({});
   readonly editFeedback = signal<Record<string, string | undefined>>({});
@@ -961,24 +1147,103 @@ export class ResultsComponent implements OnInit {
     this.reminderSuccess.set(false);
     this.reminderHistory.set([]);
     this.submissionFlags.set([]);
+    this.feedbackSub?.unsubscribe();
+    this.feedbackReport.set(null);
+    this.feedbackLoading.set(null);
+    this.feedbackError.set(null);
+    this.regenerating.set(false);
+    this.regenerateError.set(null);
     // NOT_STARTED candidates have no submission to load
     if (s.status !== 'NOT_STARTED' && s.submissionId) {
+      const submissionId = s.submissionId;
       this.loadingResult.set(true);
-      this.markingSvc.getResult(s.submissionId).subscribe({
-        next: r => { this.result.set(r); this.loadingResult.set(false); },
+      this.markingSvc.getResult(submissionId).subscribe({
+        next: r => {
+          this.result.set(r);
+          this.loadingResult.set(false);
+          if (r.markingStatus === 'FULLY_MARKED') {
+            this.loadFeedbackReport(submissionId);
+          }
+        },
         error: () => this.loadingResult.set(false),
       });
       if (s.flagStatus === 'FLAGGED' || s.flagStatus === 'UNDER_REVIEW' || s.flagStatus === 'ACTION_REQUIRED') {
-        this.loadActiveFlagForSubmission(s.submissionId, s.flagStatus as FlagStatus);
+        this.loadActiveFlagForSubmission(submissionId, s.flagStatus as FlagStatus);
       }
       this.flagSvc.getCandidateFlags(s.candidateId).subscribe({
-        next: flags => this.submissionFlags.set(flags.filter(f => f.submissionId === s.submissionId)),
+        next: flags => this.submissionFlags.set(flags.filter(f => f.submissionId === submissionId)),
       });
     }
     // Load reminder history via invitationId
     this.reminderSvc.getReminderHistory(s.invitationId).subscribe({
       next: history => this.reminderHistory.set(history),
     });
+  }
+
+  private loadFeedbackReport(submissionId: string): void {
+    this.feedbackLoading.set('fetching');
+    this.feedbackError.set(null);
+
+    this.feedbackSub = this.feedbackSvc.getReport(submissionId).subscribe({
+      next: report => {
+        this.feedbackReport.set(report);
+        this.feedbackLoading.set(null);
+      },
+      error: (err: HttpErrorResponse) => {
+        if (err.status === 404) {
+          this.feedbackLoading.set('generating');
+          this.feedbackSub = this.feedbackSvc.generateReport(submissionId).subscribe({
+            next: report => {
+              if (this.selectedSummary()?.submissionId === submissionId) {
+                this.feedbackReport.set(report);
+              }
+              this.feedbackLoading.set(null);
+            },
+            error: () => {
+              if (this.selectedSummary()?.submissionId === submissionId) {
+                this.feedbackError.set('Could not generate feedback report. Please try again.');
+              }
+              this.feedbackLoading.set(null);
+            },
+          });
+        } else {
+          this.feedbackError.set('Could not load feedback report. Please try again.');
+          this.feedbackLoading.set(null);
+        }
+      },
+    });
+  }
+
+  regenerateReport(): void {
+    const submissionId = this.selectedSummary()?.submissionId;
+    if (!submissionId) return;
+
+    this.regenerating.set(true);
+    this.regenerateError.set(null);
+
+    this.feedbackSvc.generateReport(submissionId)
+      .pipe(timeout(30_000))
+      .subscribe({
+        next: report => {
+          this.feedbackReport.set(report);
+          this.regenerating.set(false);
+        },
+        error: (err) => {
+          this.regenerating.set(false);
+          if (err.name === 'TimeoutError') {
+            this.regenerateError.set('Regeneration timed out. Please try again.');
+          } else {
+            this.regenerateError.set('Regeneration failed. Please try again.');
+          }
+        },
+      });
+  }
+
+  retryFeedback(): void {
+    const submissionId = this.selectedSummary()?.submissionId;
+    if (!submissionId) return;
+    this.feedbackError.set(null);
+    this.loadFeedbackReport(submissionId);
   }
 
   private loadActiveFlagForSubmission(submissionId: string, status: FlagStatus) {
@@ -1150,6 +1415,15 @@ export class ResultsComponent implements OnInit {
   formatDate(iso: string | null): string {
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString('en-ZA', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  formatDateTime(iso: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', second: '2-digit',
+    });
   }
 
   flagReasonLabel(reason: FlagReason): string {
