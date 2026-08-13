@@ -1722,3 +1722,15 @@ Relevant files reviewed:
 
 ---
 
+## 2026-08-13 09:23 | rodwe | in: 24 out: 4254 | cache_read: 550753 cache_write: 24963
+
+> Bugfix: Run all scripts in 'migration' directory and in 'seed' directory against local postgres and not docker postgres.
+
+---
+
+## 2026-08-13 10:10 | rodwe | in: 259 out: 20036 | cache_read: 2152696 cache_write: 52426
+
+> rerun everything....delete all the tables except for users table and rerun all the scripts in migrations and seed. make sure everything works fine.
+
+---
+
