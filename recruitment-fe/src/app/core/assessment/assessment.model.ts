@@ -81,3 +81,27 @@ export interface AssessmentPreview {
   randomisationQuotas: RandomisationQuota[];
   questions: PreviewQuestion[];
 }
+
+export interface AssemblyQuota {
+  tag: string | null;
+  difficulty: Difficulty | null;
+  count: number;
+}
+
+export interface SuggestedAssemblyQuestion {
+  id: string;
+  type: QuestionType;
+  title: string;
+  difficulty: Difficulty | null;
+  tags: string[];
+}
+
+export interface AssemblyQuotaOutcome {
+  quota: AssemblyQuota;
+  suggested: SuggestedAssemblyQuestion[];
+  shortfall: number;
+}
+
+export interface AssemblySuggestionResponse {
+  outcomes: AssemblyQuotaOutcome[];
+}

@@ -1417,16 +1417,16 @@ Make the adjustments you think would be best
 
 ## 2026-08-11 12:32 | nkosinathi.phiri | in: 2 out: 295 | cache_read: 72119 cache_write: 254
 
-> PS C:\myworkbench\personal_projects\ai_training\assessment-recruitment-2> ! gh auth login -h github.com
-At line:1 char:2
-+ ! gh auth login -h github.com
-+  ~
-Missing expression after unary operator '!'.
-At line:1 char:3
-+ ! gh auth login -h github.com
-+   ~~
-Unexpected token 'gh' in expression or statement.
-    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+> PS C:\myworkbench\personal_projects\ai_training\assessment-recruitment-2> ! gh auth login -h github.com
+At line:1 char:2
++ ! gh auth login -h github.com
++  ~
+Missing expression after unary operator '!'.
+At line:1 char:3
++ ! gh auth login -h github.com
++   ~~
+Unexpected token 'gh' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
     + FullyQualifiedErrorId : MissingExpressionAfterOperator
 
 ---
@@ -1457,189 +1457,189 @@ Unexpected token 'gh' in expression or statement.
 
 ## 2026-08-11 12:57 | nkosinathi.phiri | in: 2 out: 1180 | cache_read: 76216 cache_write: 5348
 
-> <task-notification>
-<task-id>a06abaf57f5e70147</task-id>
-<tool-use-id>toolu_01AJJ7CW9f3cpRThCpF1fMPz</tool-use-id>
-<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\827270ca-5c86-4456-b5c3-fc14570ab14c\tasks\a06abaf57f5e70147.output</output-file>
-<status>completed</status>
-<summary>Agent "Review Groq integration PR" finished</summary>
-<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
-<result>## Verdict
-**REQUEST CHANGES**
-
-The `AiService`/`AiClient`/`GroqClient` layering itself is clean and mirrors the `PistonClient` pattern well, but the PR ships in a state that breaks the existing test suite (verified by running it) and leaks upstream error details into API responses, so it cannot merge as-is.
-
----
-
-## Summary
-
-This PR scaffolds a provider-independent AI integration layer (`AiService` → `AiClient` → `GroqClient`) for Groq chat completions, following the existing `execution/` (Piston) package pattern reasonably closely: interface-based DI, `@RequiredArgsConstructor`, `@ConfigurationProperties` record, and `@ResponseStatus`-annotated exceptions that ride the existing `GlobalExceptionHandler`. The design is sound, but the implementation has a startup-breaking configuration bug, leaks provider internals into client-facing error messages (contradicting the PR's own stated requirement 4.7), and ships test coverage for only the thin `AiServiceImpl` wrapper — the actual HTTP/error-mapping logic in `GroqClient` (the highest-risk code) has zero tests despite the PR title claiming "with testing."
-
----
-
-### Inline comments
-
-**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiProperties.java` — `@NotBlank String apiKey`**
-&gt; 🔴 **Critical** — `Logic / Spring conventions`
-
-`@NotBlank` on `apiKey` combined with the `application.yaml` default `${GROQ_API_KEY:}` (empty string when unset) means the Spring context **fails to start** whenever `GROQ_API_KEY` isn't set in the environment. I checked out the branch and ran the existing suite — every `@SpringBootTest`-based integration test (not just AI-related ones) now fails at context refresh:
-
-```
-Caused by: BindValidationException: Binding validation errors on ai.groq
- - Field error in object 'ai.groq' on field 'apiKey': rejected value []
-```
-
-This breaks `AuthControllerIntegrationTest`, `AssessmentControllerIntegrationTest`, and every other integration test that extends `AbstractIntegrationTest`, plus local `./mvnw spring-boot:run` without `GROQ_API_KEY` exported — which contradicts this repo's own convention of "environment variables with dev-only local defaults" (CLAUDE.md). `PistonProperties` has no such hard-fail field for exactly this reason.
-
-**Suggestion:** either give `apiKey` a placeholder dev default and validate lazily on first real call, or (better) drop `@NotBlank`/`@Validated` from the record and check for a blank key inside `GroqClient` at call time, throwing `AiAuthenticationException` — consistent with "fail at the point of use," not at context boot for a feature no other code calls yet.
-
----
-
-**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — `sendPrompt()` error mapping**
-&gt; 🔴 **Critical** — `Security &amp; validation`
-
-`GlobalExceptionHandler.handleException` uses `ex.getMessage()` verbatim as the `ProblemDetail` `detail` for any `@ResponseStatus` exception without a `reason()` — none of the five new exceptions set `reason()`. That means these messages go straight to the API client:
-
-```java
-.onStatus(status -&gt; status.is5xxServerError(), (req, res) -&gt; {
-    throw new AiCommunicationException("AI provider error: " + res.getStatusCode());
-});
-...
-mapped = new AiCommunicationException("AI request failed due to network error: " + ex.getMessage());
-```
-
-The first embeds the **raw provider HTTP status code** directly in the response body; the second embeds `ResourceAccessException.getMessage()`, which for `RestClient` I/O failures typically includes the full request URL (`https://api.groq.com/openai/v1/chat/completions`). Both violate requirement 4.7 in this PR's own design doc ("response body SHALL NOT contain... the raw HTTP status from the provider... or the word 'Groq'") and the reviewer rule against leaking internal error detail to callers.
-
-**Suggestion:**
-```java
-.onStatus(status -&gt; status.is5xxServerError(), (req, res) -&gt; {
-    throw new AiCommunicationException("The AI provider is currently unavailable");
-});
-// ...
-mapped = new AiCommunicationException("Unable to reach the AI provider");
-```
-Log the real status/exception at ERROR (which the code already does) and keep the thrown message generic.
-
----
-
-**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — double ERROR log for `AiResponseException`**
-&gt; 🟡 **Warning** — `Logic`
-
-The null/blank-content branches log an ERROR and then throw, but that same exception type is also caught by the surrounding `catch` and logged again:
-
-```java
-if (content == null || content.isBlank()) {
-    long elapsed = System.currentTimeMillis() - startTime;
-    AiResponseException ex = new AiResponseException("AI response returned null or blank content");
-    log.error("AI request failed — type: {}, elapsed: {}ms", ex.getClass().getSimpleName(), elapsed); // (1)
-    throw ex;
-}
-...
-} catch (AiAuthenticationException | AiRateLimitException | AiCommunicationException | AiResponseException ex) {
-    long elapsed = System.currentTimeMillis() - startTime;
-    log.error("AI request failed — type: {}, elapsed: {}ms", ex.getClass().getSimpleName(), elapsed); // (2) — duplicate for AiResponseException
-    throw ex;
-}
-```
-
-Every "missing/blank content" failure produces two ERROR log lines with slightly different `elapsed` values, which will confuse anyone grepping logs for failure counts.
-
-**Suggestion:** drop the inline `log.error` calls at the two throw sites and let the single `catch` block own all logging for these four exception types — that's already its job.
-
----
-
-**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — constructor / timeout handling**
-&gt; 🟡 **Warning** — `Logic`
-
-```java
-public GroqClient(AiProperties properties) {
-    this.properties = properties;
-    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-    requestFactory.setReadTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
-    ...
-}
-```
-
-Only `readTimeout` is set — `connectTimeout` is left at the JDK default (platform-dependent, can be very long or unbounded). `PistonClient` sets both from `PistonProperties`. As written, requirement 2.4 ("timeout SHALL be within 1–300s") isn't actually enforced for connection establishment — a hung DNS lookup or unreachable host can block well past the configured timeout.
-
-Also, only `401`, `429`, and `5xx` are mapped via `.onStatus()`. Any other 4xx from Groq (`400` bad request — e.g. malformed request or invalid model name, `403`, `404`) falls through to `RestClient`'s default behavior, which throws an unhandled `HttpClientErrorException` — not caught by this method's `catch` clauses — and ends up in `GlobalExceptionHandler`'s generic `Exception` handler as an opaque 500, bypassing all five purpose-built AI exceptions.
-
-**Suggestion:**
-```java
-requestFactory.setConnectTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
-requestFactory.setReadTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
-```
-and add a catch-all `onStatus(HttpStatusCode::isError, ...)` (or catch `RestClientResponseException` broadly, as `CodeExecutionServiceImpl.callPiston` does) mapping any unmapped error status to `AiCommunicationException`.
-
----
-
-**`recruitment-be/src/test/java/com/psybergate/recruitment/ai/AiServiceImplTest.java` — coverage scope**
-&gt; 🔴 **Critical** — `Test quality`
-
-This is the only test class in the PR, and it exercises `AiServiceImpl` only — a 9-line pass-through wrapper. `GroqClient`, which owns all the real logic (HTTP calls, status-code mapping, timeout classification, content extraction, and — critically — the logging redaction rules for the API key and prompt content), has **zero tests**. The PR's own `design.md`/`tasks.md` list a `GroqClientTest` using `MockRestServiceServer`, an `AiPropertiesValidationTest`, an `AiContextTest`, and 14 jqwik property tests as required deliverables (jqwik was even added to `pom.xml` for this purpose) — none of them exist in this diff. Given the AiProperties startup bug and the message-leakage bug above, tests against the real `GroqClient`/`AiProperties` wiring would very likely have caught both.
-
-**Suggestion:** at minimum, add a `GroqClientTest` with `MockRestServiceServer` covering the 401/429/5xx/timeout/blank-content branches and asserting the resulting `ex.getMessage()` never contains "Groq" or the raw status code, plus one `@SpringBootTest`-style test asserting the context actually starts with the shipped `application.yaml` defaults (which would have caught the `apiKey` issue immediately).
-
----
-
-**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiServiceImpl.java` / `AiService.java` / `client/AiClient.java`**
-&gt; 🟢 **Good** — `OOP &amp; SOLID / Layered architecture`
-
-```java
-@Service
-@Primary
-@RequiredArgsConstructor
-public class AiServiceImpl implements AiService {
-    private final AiClient aiClient;
-
-    @Override
-    public String prompt(String prompt) {
-        if (prompt == null || prompt.isBlank()) {
-            throw new IllegalArgumentException("Prompt must not be null or blank");
-        }
-        return aiClient.sendPrompt(prompt);
-    }
-}
-```
-
-Clean separation: `AiService` is the interface future business services depend on, `AiClient` is a provider-agnostic seam, and `GroqClient` is the only class that knows about Groq specifics. Constructor injection via `@RequiredArgsConstructor`, no field-level `@Autowired`, no business logic bleeding into the controller layer (there isn't one yet), and no `instanceof` chains. This is exactly the shape `PistonProperties → PistonClient → CodeExecutionService` established.
-
----
-
-**`.kiro/specs/ai-integration-foundation/*`, `.kiro/steering/project.md`**
-&gt; 🔵 **Info** — `Convention`
-
-This PR commits ~880 lines of Kiro spec-workflow artifacts (`design.md`, `requirements.md`, `tasks.md`, `steering/project.md`). This repo's `CLAUDE.md` states the project uses **OpenSpec** (`openspec/config.yaml`, `/openspec-new-change`) for spec-driven development, not Kiro — these are two different tools' artifacts living side by side. Worth confirming with the team whether `.kiro/` is an intentional parallel workflow or should be `.gitignore`d before merge; either way it's a lot of non-code content riding along with a scaffolding PR.
-
----
-
-One more, out of scope for this PR per the task but worth a note since it's directly related: `docker-compose.yml`'s backend `environment:` block still has no `GROQ_API_KEY`/`GROQ_BASE_URL`/`GROQ_MODEL` entries (compare to how `PISTON_BASE_URL` is wired for the `piston` service), and there's no README/deployment doc update. Given the `AiProperties` startup issue above, running `docker compose up --build` today would crash the backend container. Not blocking for this PR if it's tracked separately (ATR2-9), but it compounds the `@NotBlank apiKey` bug into a full local-stack breakage until both are fixed together.
-
----
-
-### Scores
-
-| Dimension | Score |
-|---|---|
-| Logic | 3/10 |
-| OOP &amp; SOLID | 8/10 |
-| Layered architecture | 8/10 |
-| JPA &amp; domain model | N/A — no entities/JPA touched |
-| Spring conventions | 5/10 |
-| Security &amp; validation | 4/10 |
-
----
-
-Relevant files reviewed:
-- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiProperties.java`
-- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiServiceImpl.java`, `AiService.java`
-- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java`, `AiClient.java`
-- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/dto/*.java`
-- `recruitment-be/src/main/resources/application.yaml`
-- `recruitment-be/src/test/java/com/psybergate/recruitment/ai/AiServiceImplTest.java`
-- Compared against `recruitment-be/src/main/java/com/psybergate/recruitment/execution/PistonClient.java`, `PistonProperties.java`, `CodeExecutionServiceImpl.java`, and `recruitment-be/src/main/java/com/psybergate/recruitment/common/GlobalExceptionHandler.java`
-- Verified failure via `./mvnw -Dtest=AuthControllerIntegrationTest test` on the checked-out `feature/ai-groq-integration` branch (surefire report at `recruitment-be/target/surefire-reports/com.psybergate.recruitment.auth.AuthControllerIntegrationTest.txt`)</result>
-<usage><subagent_tokens>116955</subagent_tokens><tool_uses>31</tool_uses><duration_ms>649136</duration_ms></usage>
+> <task-notification>
+<task-id>a06abaf57f5e70147</task-id>
+<tool-use-id>toolu_01AJJ7CW9f3cpRThCpF1fMPz</tool-use-id>
+<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\827270ca-5c86-4456-b5c3-fc14570ab14c\tasks\a06abaf57f5e70147.output</output-file>
+<status>completed</status>
+<summary>Agent "Review Groq integration PR" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Verdict
+**REQUEST CHANGES**
+
+The `AiService`/`AiClient`/`GroqClient` layering itself is clean and mirrors the `PistonClient` pattern well, but the PR ships in a state that breaks the existing test suite (verified by running it) and leaks upstream error details into API responses, so it cannot merge as-is.
+
+---
+
+## Summary
+
+This PR scaffolds a provider-independent AI integration layer (`AiService` → `AiClient` → `GroqClient`) for Groq chat completions, following the existing `execution/` (Piston) package pattern reasonably closely: interface-based DI, `@RequiredArgsConstructor`, `@ConfigurationProperties` record, and `@ResponseStatus`-annotated exceptions that ride the existing `GlobalExceptionHandler`. The design is sound, but the implementation has a startup-breaking configuration bug, leaks provider internals into client-facing error messages (contradicting the PR's own stated requirement 4.7), and ships test coverage for only the thin `AiServiceImpl` wrapper — the actual HTTP/error-mapping logic in `GroqClient` (the highest-risk code) has zero tests despite the PR title claiming "with testing."
+
+---
+
+### Inline comments
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiProperties.java` — `@NotBlank String apiKey`**
+&gt; 🔴 **Critical** — `Logic / Spring conventions`
+
+`@NotBlank` on `apiKey` combined with the `application.yaml` default `${GROQ_API_KEY:}` (empty string when unset) means the Spring context **fails to start** whenever `GROQ_API_KEY` isn't set in the environment. I checked out the branch and ran the existing suite — every `@SpringBootTest`-based integration test (not just AI-related ones) now fails at context refresh:
+
+```
+Caused by: BindValidationException: Binding validation errors on ai.groq
+ - Field error in object 'ai.groq' on field 'apiKey': rejected value []
+```
+
+This breaks `AuthControllerIntegrationTest`, `AssessmentControllerIntegrationTest`, and every other integration test that extends `AbstractIntegrationTest`, plus local `./mvnw spring-boot:run` without `GROQ_API_KEY` exported — which contradicts this repo's own convention of "environment variables with dev-only local defaults" (CLAUDE.md). `PistonProperties` has no such hard-fail field for exactly this reason.
+
+**Suggestion:** either give `apiKey` a placeholder dev default and validate lazily on first real call, or (better) drop `@NotBlank`/`@Validated` from the record and check for a blank key inside `GroqClient` at call time, throwing `AiAuthenticationException` — consistent with "fail at the point of use," not at context boot for a feature no other code calls yet.
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — `sendPrompt()` error mapping**
+&gt; 🔴 **Critical** — `Security &amp; validation`
+
+`GlobalExceptionHandler.handleException` uses `ex.getMessage()` verbatim as the `ProblemDetail` `detail` for any `@ResponseStatus` exception without a `reason()` — none of the five new exceptions set `reason()`. That means these messages go straight to the API client:
+
+```java
+.onStatus(status -&gt; status.is5xxServerError(), (req, res) -&gt; {
+    throw new AiCommunicationException("AI provider error: " + res.getStatusCode());
+});
+...
+mapped = new AiCommunicationException("AI request failed due to network error: " + ex.getMessage());
+```
+
+The first embeds the **raw provider HTTP status code** directly in the response body; the second embeds `ResourceAccessException.getMessage()`, which for `RestClient` I/O failures typically includes the full request URL (`https://api.groq.com/openai/v1/chat/completions`). Both violate requirement 4.7 in this PR's own design doc ("response body SHALL NOT contain... the raw HTTP status from the provider... or the word 'Groq'") and the reviewer rule against leaking internal error detail to callers.
+
+**Suggestion:**
+```java
+.onStatus(status -&gt; status.is5xxServerError(), (req, res) -&gt; {
+    throw new AiCommunicationException("The AI provider is currently unavailable");
+});
+// ...
+mapped = new AiCommunicationException("Unable to reach the AI provider");
+```
+Log the real status/exception at ERROR (which the code already does) and keep the thrown message generic.
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — double ERROR log for `AiResponseException`**
+&gt; 🟡 **Warning** — `Logic`
+
+The null/blank-content branches log an ERROR and then throw, but that same exception type is also caught by the surrounding `catch` and logged again:
+
+```java
+if (content == null || content.isBlank()) {
+    long elapsed = System.currentTimeMillis() - startTime;
+    AiResponseException ex = new AiResponseException("AI response returned null or blank content");
+    log.error("AI request failed — type: {}, elapsed: {}ms", ex.getClass().getSimpleName(), elapsed); // (1)
+    throw ex;
+}
+...
+} catch (AiAuthenticationException | AiRateLimitException | AiCommunicationException | AiResponseException ex) {
+    long elapsed = System.currentTimeMillis() - startTime;
+    log.error("AI request failed — type: {}, elapsed: {}ms", ex.getClass().getSimpleName(), elapsed); // (2) — duplicate for AiResponseException
+    throw ex;
+}
+```
+
+Every "missing/blank content" failure produces two ERROR log lines with slightly different `elapsed` values, which will confuse anyone grepping logs for failure counts.
+
+**Suggestion:** drop the inline `log.error` calls at the two throw sites and let the single `catch` block own all logging for these four exception types — that's already its job.
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java` — constructor / timeout handling**
+&gt; 🟡 **Warning** — `Logic`
+
+```java
+public GroqClient(AiProperties properties) {
+    this.properties = properties;
+    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+    requestFactory.setReadTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
+    ...
+}
+```
+
+Only `readTimeout` is set — `connectTimeout` is left at the JDK default (platform-dependent, can be very long or unbounded). `PistonClient` sets both from `PistonProperties`. As written, requirement 2.4 ("timeout SHALL be within 1–300s") isn't actually enforced for connection establishment — a hung DNS lookup or unreachable host can block well past the configured timeout.
+
+Also, only `401`, `429`, and `5xx` are mapped via `.onStatus()`. Any other 4xx from Groq (`400` bad request — e.g. malformed request or invalid model name, `403`, `404`) falls through to `RestClient`'s default behavior, which throws an unhandled `HttpClientErrorException` — not caught by this method's `catch` clauses — and ends up in `GlobalExceptionHandler`'s generic `Exception` handler as an opaque 500, bypassing all five purpose-built AI exceptions.
+
+**Suggestion:**
+```java
+requestFactory.setConnectTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
+requestFactory.setReadTimeout(Duration.ofSeconds(properties.timeoutSeconds()));
+```
+and add a catch-all `onStatus(HttpStatusCode::isError, ...)` (or catch `RestClientResponseException` broadly, as `CodeExecutionServiceImpl.callPiston` does) mapping any unmapped error status to `AiCommunicationException`.
+
+---
+
+**`recruitment-be/src/test/java/com/psybergate/recruitment/ai/AiServiceImplTest.java` — coverage scope**
+&gt; 🔴 **Critical** — `Test quality`
+
+This is the only test class in the PR, and it exercises `AiServiceImpl` only — a 9-line pass-through wrapper. `GroqClient`, which owns all the real logic (HTTP calls, status-code mapping, timeout classification, content extraction, and — critically — the logging redaction rules for the API key and prompt content), has **zero tests**. The PR's own `design.md`/`tasks.md` list a `GroqClientTest` using `MockRestServiceServer`, an `AiPropertiesValidationTest`, an `AiContextTest`, and 14 jqwik property tests as required deliverables (jqwik was even added to `pom.xml` for this purpose) — none of them exist in this diff. Given the AiProperties startup bug and the message-leakage bug above, tests against the real `GroqClient`/`AiProperties` wiring would very likely have caught both.
+
+**Suggestion:** at minimum, add a `GroqClientTest` with `MockRestServiceServer` covering the 401/429/5xx/timeout/blank-content branches and asserting the resulting `ex.getMessage()` never contains "Groq" or the raw status code, plus one `@SpringBootTest`-style test asserting the context actually starts with the shipped `application.yaml` defaults (which would have caught the `apiKey` issue immediately).
+
+---
+
+**`recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiServiceImpl.java` / `AiService.java` / `client/AiClient.java`**
+&gt; 🟢 **Good** — `OOP &amp; SOLID / Layered architecture`
+
+```java
+@Service
+@Primary
+@RequiredArgsConstructor
+public class AiServiceImpl implements AiService {
+    private final AiClient aiClient;
+
+    @Override
+    public String prompt(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("Prompt must not be null or blank");
+        }
+        return aiClient.sendPrompt(prompt);
+    }
+}
+```
+
+Clean separation: `AiService` is the interface future business services depend on, `AiClient` is a provider-agnostic seam, and `GroqClient` is the only class that knows about Groq specifics. Constructor injection via `@RequiredArgsConstructor`, no field-level `@Autowired`, no business logic bleeding into the controller layer (there isn't one yet), and no `instanceof` chains. This is exactly the shape `PistonProperties → PistonClient → CodeExecutionService` established.
+
+---
+
+**`.kiro/specs/ai-integration-foundation/*`, `.kiro/steering/project.md`**
+&gt; 🔵 **Info** — `Convention`
+
+This PR commits ~880 lines of Kiro spec-workflow artifacts (`design.md`, `requirements.md`, `tasks.md`, `steering/project.md`). This repo's `CLAUDE.md` states the project uses **OpenSpec** (`openspec/config.yaml`, `/openspec-new-change`) for spec-driven development, not Kiro — these are two different tools' artifacts living side by side. Worth confirming with the team whether `.kiro/` is an intentional parallel workflow or should be `.gitignore`d before merge; either way it's a lot of non-code content riding along with a scaffolding PR.
+
+---
+
+One more, out of scope for this PR per the task but worth a note since it's directly related: `docker-compose.yml`'s backend `environment:` block still has no `GROQ_API_KEY`/`GROQ_BASE_URL`/`GROQ_MODEL` entries (compare to how `PISTON_BASE_URL` is wired for the `piston` service), and there's no README/deployment doc update. Given the `AiProperties` startup issue above, running `docker compose up --build` today would crash the backend container. Not blocking for this PR if it's tracked separately (ATR2-9), but it compounds the `@NotBlank apiKey` bug into a full local-stack breakage until both are fixed together.
+
+---
+
+### Scores
+
+| Dimension | Score |
+|---|---|
+| Logic | 3/10 |
+| OOP &amp; SOLID | 8/10 |
+| Layered architecture | 8/10 |
+| JPA &amp; domain model | N/A — no entities/JPA touched |
+| Spring conventions | 5/10 |
+| Security &amp; validation | 4/10 |
+
+---
+
+Relevant files reviewed:
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiProperties.java`
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/AiServiceImpl.java`, `AiService.java`
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/client/GroqClient.java`, `AiClient.java`
+- `recruitment-be/src/main/java/com/psybergate/recruitment/ai/dto/*.java`
+- `recruitment-be/src/main/resources/application.yaml`
+- `recruitment-be/src/test/java/com/psybergate/recruitment/ai/AiServiceImplTest.java`
+- Compared against `recruitment-be/src/main/java/com/psybergate/recruitment/execution/PistonClient.java`, `PistonProperties.java`, `CodeExecutionServiceImpl.java`, and `recruitment-be/src/main/java/com/psybergate/recruitment/common/GlobalExceptionHandler.java`
+- Verified failure via `./mvnw -Dtest=AuthControllerIntegrationTest test` on the checked-out `feature/ai-groq-integration` branch (surefire report at `recruitment-be/target/surefire-reports/com.psybergate.recruitment.auth.AuthControllerIntegrationTest.txt`)</result>
+<usage><subagent_tokens>116955</subagent_tokens><tool_uses>31</tool_uses><duration_ms>649136</duration_ms></usage>
 </task-notification>
 
 ---
@@ -1722,6 +1722,546 @@ Relevant files reviewed:
 
 ---
 
+## 2026-08-12 10:28 | nkosinathi.phiri | in: 10 out: 3843 | cache_read: 788759 cache_write: 7510
+
+> continue with the rest of the epic
+
+---
+
+## 2026-08-12 11:21 | nkosinathi.phiri | in: 16 out: 5386 | cache_read: 1560873 cache_write: 7290
+
+> with the mis-match faliure is the no way to always append java to user prompt when it reaches the backend before sending to the model regardless of weather the user did mention or not
+
+---
+
+## 2026-08-12 11:26 | nkosinathi.phiri | in: 6 out: 1578 | cache_read: 600893 cache_write: 4883
+
+> continue with the epic
+
+---
+
+## 2026-08-12 11:28 | nkosinathi.phiri | in: 12 out: 2226 | cache_read: 1705352 cache_write: 4493
+
+> <task-notification>
+<task-id>afc20f53ee63c9ae0</task-id>
+<tool-use-id>toolu_01QP7GQyAUWARQ4xN8gSVenk</tool-use-id>
+<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\f5129d38-3bc1-4fab-b93b-b584c00ea11c\tasks\afc20f53ee63c9ae0.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore assessment assembly and randomization code" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>This is enough. Now compiling the final report.
+
+## Findings
+
+**1. `RandomisationQuotaDto`**
+`recruitment-be/src/main/java/com/psybergate/recruitment/assessment/dto/RandomisationQuotaDto.java`
+```java
+package com.psybergate.recruitment.assessment.dto;
+public record RandomisationQuotaDto(
+        @NotNull QuestionType questionType,
+        @Min(1) int count
+) {}
+```
+Note: quota is keyed by `QuestionType` (`MCQ, TEXT, CODE_SUBMISSION, GROUP` — see `com.psybergate.recruitment.domain.QuestionType`), **not** by topic/tag or difficulty. Backing entity `com.psybergate.recruitment.domain.RandomisationQuota` (`assessment_randomisation_quotas` table): `UUID id`, `Assessment assessment` (ManyToOne), `QuestionType questionType`, `int count`.
+
+**2. Actual runtime selection method**
+Not in `AssessmentServiceImpl` (that class only stores/echoes quota config — see `applyRandomisation`/`toQuotaDtos` in `assessment/AssessmentServiceImpl.java`). The real quota-based random draw is:
+
+`recruitment-be/src/main/java/com/psybergate/recruitment/take/CandidateTakeServiceImpl.java`
+```java
+private List&lt;AssessmentQuestion&gt; resolveQuestions(Assessment assessment, UUID submissionId)
+```
+Algorithm: loads all `AssessmentQuestion`s for the assessment; if `assessment.isRandomiseQuestions()` is false, returns them all in display order. Otherwise: checks `SubmissionQuestionSnapshotRepository` for an existing snapshot (resume path — returns the previously-drawn set in original order). On first load, groups the assessment's questions by `QuestionType` (`Collectors.groupingBy`), then for each `RandomisationQuota` on the assessment, takes the pool for that `questionType`, throws `400 BAD_REQUEST` if `quota.getCount() &gt; pool.size()`, otherwise does `Collections.shuffle(new ArrayList&lt;&gt;(pool))` and takes `subList(0, count)`. Selected questions are persisted per-candidate into `SubmissionQuestionSnapshot` (question id + display order) so the draw is stable across reloads/resume. No topic/tag or difficulty filtering is involved — selection pool is only partitioned by `QuestionType`.
+
+**3. Controller endpoints**
+- Config (recruiter/admin side): `com.psybergate.recruitment.assessment.AssessmentController` — `POST /api/assessments` and `PUT /api/assessments/{id}` accept `AssessmentRequest` (`title, description, timeLimitMinutes, accessPassword, boolean randomiseQuestions, List&lt;RandomisationQuotaDto&gt; randomisationQuotas`), returning `AssessmentDetailResponse`. Preview: `GET /api/assessments/{id}/preview` → `AssessmentPreviewResponse(id, title, description, timeLimitMinutes, passwordRequired, randomiseQuestions, List&lt;RandomisationQuotaDto&gt;, List&lt;PreviewQuestionDto&gt;)`.
+- Actual draw execution (candidate side): `com.psybergate.recruitment.take.CandidateTakeController`, `@RequestMapping("/api/take")`, `GET /api/take/assessment` → calls `resolveQuestions` internally, returns `AssessmentTakeResponse`.
+
+**4. Question filtering**
+`recruitment-be/src/main/java/com/psybergate/recruitment/repository/QuestionRepository.java`:
+```java
+public interface QuestionRepository extends JpaRepository&lt;Question, UUID&gt; {
+    @Query("SELECT DISTINCT q FROM Question q JOIN q.tags t WHERE t.name = :tagName")
+    List&lt;Question&gt; findByTagName(@Param("tagName") String tagName);
+}
+```
+No repository method filters by `Difficulty`. Topic is represented via `Question.tags: Set&lt;Tag&gt;` (`@ManyToMany`, join table `question_tags`) — `Tag` entity (`domain/Tag.java`) has only `UUID id` and `String name` (unique). `QuestionServiceImpl.findAll(String type, String tag)` (`question/QuestionServiceImpl.java`) does in-repository/service-level filtering by tag name and type string but not difficulty. `Question.difficulty: Difficulty` field exists (`EASY, MEDIUM, HARD`) but has no dedicated repository query.
+
+**5. Existing tests**
+`recruitment-be/src/test/java/com/psybergate/recruitment/take/CandidateTakeServiceTest.java` — plain JUnit5 + Mockito (`@ExtendWith(MockitoExtension.class)`, `@Mock`/`@InjectMocks`, AssertJ assertions). No test method directly targets `resolveQuestions`/quota-exceeds-pool logic by name (only submit/load/save-answer scenarios). No jqwik-based (property-based) test exists yet despite jqwik being a dependency in `pom.xml`.
+
+**6. Reusable AI/assembly infra**
+An `ai` package already exists: `com.psybergate.recruitment.ai.AiService` (`String prompt(String prompt)`), `AiServiceImpl`, `client/AiClient`, `client/GroqClient`, dtos `GroqChatRequest/Response/Choice/Message`, plus exceptions `AiAuthenticationException`, `AiCommunicationException`, `AiRateLimitException`, `AiResponseException`, `AiTimeoutException`, and `AiProperties`. No existing "assembly"/"suggestion" DTOs in `assessment/dto` or elsewhere — you'd add new ones there, reusing `AiService`/`GroqClient` rather than building a new LLM client.</result>
+<usage><subagent_tokens>53434</subagent_tokens><tool_uses>32</tool_uses><duration_ms>103349</duration_ms></usage>
+</task-notification>
+
+---
+
+## 2026-08-12 12:24 | nkosinathi.phiri | in: 2 out: 151 | cache_read: 287792 cache_write: 200
+
+> ❯ {
+  "quotas": [
+    {"tag": "java", "difficulty": "EASY", "count": 2}
+  ]
+} does the above look fine ?
+
+---
+
+## 2026-08-12 12:28 | nkosinathi.phiri | in: 8 out: 1358 | cache_read: 1377901 cache_write: 1690
+
+> run all the tests to make sure nothing else broke
+
+---
+
+## 2026-08-12 13:49 | nkosinathi.phiri | in: 2859 out: 1816 | cache_read: 1041551 cache_write: 8021
+
+> continue with ATR2-14 and ATR2-15
+
+---
+
+## 2026-08-12 13:52 | nkosinathi.phiri | in: 142 out: 21116 | cache_read: 34079448 cache_write: 488951
+
+> <task-notification>
+<task-id>a40b6fcbdaf8d63a8</task-id>
+<tool-use-id>toolu_01Vc6fgWH3bm3ym2gxZvXdpN</tool-use-id>
+<output-file>C:\Users\NKOSIN~1.PHI\AppData\Local\Temp\claude\C--myworkbench-personal-projects-ai-training-assessment-recruitment-2\f5129d38-3bc1-4fab-b93b-b584c00ea11c\tasks\a40b6fcbdaf8d63a8.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore Angular frontend structure for AI features" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All the information is gathered. Here's the precise current state.
+
+## 1. `core/ai/ai.service.ts` — does not exist
+
+No `core/ai/` directory exists in the repo. Closest sibling pattern to mirror: **`recruitment-fe/src/app/core/question/question.service.ts`** (full content):
+
+```ts
+import { inject, Injectable } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { Question, QuestionRequest } from './question.model';
+
+@Injectable({ providedIn: 'root' })
+export class QuestionService {
+  private readonly http = inject(HttpClient);
+
+  // ── Questions ─────────────────────────────────────────────────────────────
+
+  listQuestions(type?: string, tag?: string): Observable&lt;Question[]&gt; {
+    let params = new HttpParams();
+    if (type) params = params.set('type', type);
+    if (tag) params = params.set('tag', tag);
+    return this.http.get&lt;Question[]&gt;('/api/questions', { params });
+  }
+
+  getQuestion(id: string): Observable&lt;Question&gt; {
+    return this.http.get&lt;Question&gt;(`/api/questions/${id}`);
+  }
+
+  createQuestion(req: QuestionRequest): Observable&lt;Question&gt; {
+    return this.http.post&lt;Question&gt;('/api/questions', req);
+  }
+
+  updateQuestion(id: string, req: QuestionRequest): Observable&lt;Question&gt; {
+    return this.http.put&lt;Question&gt;(`/api/questions/${id}`, req);
+  }
+
+  deleteQuestion(id: string): Observable&lt;void&gt; {
+    return this.http.delete&lt;void&gt;(`/api/questions/${id}`);
+  }
+
+  // ── Tags ──────────────────────────────────────────────────────────────────
+
+  listTags(): Observable&lt;string[]&gt; {
+    return this.http.get&lt;string[]&gt;('/api/tags');
+  }
+}
+```
+
+Pattern: `private readonly http = inject(HttpClient)`, `@Injectable({ providedIn: 'root' })`, methods return typed `Observable&lt;T&gt;` calling `this.http.get/post/put/delete&lt;T&gt;('/api/...')`, no try/catch — errors propagate to caller's `.subscribe({ error: ... })`. `AssessmentService` (`core/assessment/assessment.service.ts`) follows the identical style, including one method using `HttpHeaders` for an optional bearer token — useful reference if the AI endpoint needs custom headers.
+
+## 2. `features/questions/question-form.component.ts` — exists, inline template, reactive forms
+
+Full path: `recruitment-fe/src/app/features/questions/question-form.component.ts` (936 lines, no separate `.html`/`.css` — template and styles are inline in the `@Component` decorator, `standalone` component with `imports: [ReactiveFormsModule, RouterLink]`).
+
+Form model — **Reactive Forms** via `FormBuilder`:
+```ts
+readonly form = this.fb.group({
+  type: ['MCQ' as QuestionType, Validators.required],
+  title: ['', Validators.required],
+  body: ['', Validators.required],
+  tagsRaw: [''],
+  languageHint: [''],
+  maxScore: [1, [Validators.required, Validators.min(1)]],
+  difficulty: [null as Difficulty | null],
+  options: this.fb.array([this.makeOption('', true), this.makeOption('', false)]),
+});
+```
+Plus a second inline mini-form for GROUP sub-questions, `newSubForm`, with the same shape minus `tagsRaw`/`difficulty`.
+
+Submit flow — `submit()`:
+- Non-GROUP types build a `payload` object and call `this.svc.updateQuestion(id, payload)` or `this.svc.createQuestion(payload)` (from `QuestionService`, injected as `svc`).
+- GROUP type goes through a two-phase `submitGroup()`: first `forkJoin` of `svc.createQuestion(...)` calls for any new inline sub-question drafts, then a final `svc.createQuestion({ type: 'GROUP', title, body, tags, difficulty, memberQuestionIds })`.
+
+Payload shape for non-GROUP (matches `QuestionRequest` exactly):
+```ts
+const payload = {
+  type,
+  title: this.form.get('title')!.value!,
+  body: this.form.get('body')!.value!,
+  tags,
+  maxScore: this.form.get('maxScore')!.value ?? 1,
+  difficulty,
+  ...(type === 'MCQ' &amp;&amp; { options: this.options.value }),
+  ...(type === 'CODE_SUBMISSION' &amp;&amp; { languageHint: this.form.get('languageHint')!.value ?? undefined }),
+};
+```
+GROUP payload:
+```ts
+const payload = {
+  type: 'GROUP' as QuestionType,
+  title: this.form.get('title')!.value!,
+  body: this.form.get('body')!.value!,
+  tags,
+  difficulty,
+  memberQuestionIds,
+};
+```
+Error handling on submit: `error: err =&gt; this.error.set(err?.error?.detail ?? 'Failed to save question.')` — reads backend's `detail` field, falls back to a generic string, sets a local `error` signal shown in an `@if (error()) { &lt;div class="error-banner"&gt; }` block (no toast usage here).
+
+`QuestionRequest` DTO (in `core/question/question.model.ts`):
+```ts
+export interface QuestionRequest {
+  type: QuestionType;
+  title: string;
+  body: string;
+  tags: string[];
+  options?: { text: string; correct: boolean }[];
+  languageHint?: string;
+  memberQuestionIds?: string[];
+  maxScore?: number;
+  difficulty?: Difficulty | null;
+}
+```
+This already matches the ticket's mentioned shape (type, title, body, tags, options, languageHint, memberQuestionIds, maxScore, difficulty) — any new AI-generation request/response types should reuse/extend this rather than re-declare fields.
+
+## 3. `toast.service.ts` — full content
+
+`recruitment-fe/src/app/core/toast/toast.service.ts`:
+```ts
+import { Injectable, signal } from '@angular/core';
+
+export type ToastType = 'info' | 'warning' | 'error' | 'success';
+
+export interface Toast {
+  id: number;
+  message: string;
+  type: ToastType;
+}
+
+@Injectable({ providedIn: 'root' })
+export class ToastService {
+  readonly toasts = signal&lt;Toast[]&gt;([]);
+  private nextId = 0;
+
+  show(message: string, type: ToastType = 'info') {
+    const id = ++this.nextId;
+    this.toasts.update(t =&gt; [...t, { id, message, type }]);
+    setTimeout(() =&gt; this.dismiss(id), 4000);
+  }
+
+  dismiss(id: number) {
+    this.toasts.update(t =&gt; t.filter(toast =&gt; toast.id !== id));
+  }
+}
+```
+Public API is just `show(message: string, type: ToastType = 'info')` and `dismiss(id)` — there is **no** `toast.success(...)`/`toast.error(...)` convenience wrapper; callers pass the type explicitly as the second arg, e.g. `'success'`, `'warning'`, `'error'`.
+
+Example usage — `recruitment-fe/src/app/features/candidates/candidates.component.ts` (injected as `private readonly toastSvc = inject(ToastService)`):
+```ts
+error: err =&gt; {
+  this.inviteSending.set(false);
+  const errCode = err.error?.detail ?? err.error?.message ?? err.error;
+  if (err.status === 409 &amp;&amp; errCode === 'ASSESSMENT_ALREADY_COMPLETED') {
+    this.toastSvc.show('This candidate has already completed this assessment.', 'warning');
+  } else if (err.status === 409 &amp;&amp; errCode === 'DUPLICATE_INVITE') {
+    this.toastSvc.show('This candidate already has a pending invitation for this assessment.', 'warning');
+  } ...
+```
+and elsewhere: `this.toastSvc.show('Invitation cancelled.', 'success')`, `this.toastSvc.show('Failed to cancel invitation.', 'error')`.
+
+**No existing rate-limit special-casing goes through ToastService.** The only 429-specific handling in the app is in `recruitment-fe/src/app/shared/code-runner/code-runner-panel.component.ts`, and it does **not** use toast — it sets a local `errorMsg` signal via a `friendlyError(status)` switch:
+```ts
+private friendlyError(status: number | undefined): string {
+  switch (status) {
+    case 429:
+      return 'The execution engine is busy — wait a moment and try again.';
+    case 503:
+      return 'The code execution service is unavailable right now. Your code is still saved.';
+    default:
+      return 'Could not run your code. Your answer is still saved — try again shortly.';
+  }
+}
+```
+If the AI ticket wants a "rate limit" toast, there's no existing precedent to mirror exactly — the closest pattern is this `friendlyError`-by-status-code switch, adapted to call `toastSvc.show(msg, 'warning')` instead of a local signal.
+
+## 4. `features/assessments/assessment-builder.component.ts` — full content confirmed, has a randomisation quota step already
+
+Path: `recruitment-fe/src/app/features/assessments/assessment-builder.component.ts` (1150 lines, inline template/styles, standalone, 3-step wizard: `step: signal&lt;1|2|3&gt;`).
+
+**Step 3 ("Settings") already contains a quota UI** under "Randomisation":
+```html
+&lt;div class="settings-card"&gt;
+  &lt;span class="settings-section-label"&gt;Randomisation&lt;/span&gt;
+  &lt;label class="toggle-label"&gt;
+    &lt;div class="toggle" [class.on]="randomiseQuestions()" (click)="randomiseQuestions.set(!randomiseQuestions())"&gt;
+      &lt;div class="toggle-thumb"&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    Randomise questions — serve a random subset per candidate
+  &lt;/label&gt;
+  @if (randomiseQuestions()) {
+    &lt;div class="quota-grid"&gt;
+      @for (type of questionTypesInAssessment(); track type) {
+        &lt;div class="quota-row"&gt;
+          &lt;span class="quota-type-label"&gt;{{ typeLabelMap[type] }}&lt;/span&gt;
+          &lt;span class="quota-available"&gt;/ {{ questionCountByType()[type] }} available&lt;/span&gt;
+          &lt;input type="number" class="field-input quota-input"
+            [value]="randomisationQuotas()[type] || 0"
+            (input)="setQuota(type, +$any($event.target).value)"
+            min="0" [max]="questionCountByType()[type]"/&gt;
+        &lt;/div&gt;
+      }
+      @if (questionTypesInAssessment().length === 0) {
+        &lt;p class="quota-empty"&gt;Add questions in Step 2 first.&lt;/p&gt;
+      }
+    &lt;/div&gt;
+  }
+&lt;/div&gt;
+```
+This quota step is **quota-by-question-type only** (MCQ/TEXT/CODE_SUBMISSION/GROUP counts), not by tag or difficulty — there is no tag- or difficulty-based quota UI anywhere in this component despite `Difficulty` being imported and used for the bank filter dropdown (`bankDifficulty`, `bankDifficultyFilters`). If the ticket wants tag/difficulty quotas, that's new, not existing.
+
+State/model backing it:
+```ts
+readonly randomiseQuestions = signal(false);
+readonly randomisationQuotas = signal&lt;Record&lt;QuestionType, number&gt;&gt;({} as Record&lt;QuestionType, number&gt;);
+readonly questionTypesInAssessment = computed(...); // distinct types currently in the assessment
+readonly questionCountByType = computed(...);       // count of bank-available questions per type
+setQuota(type: QuestionType, value: number) {
+  this.randomisationQuotas.update(q =&gt; ({ ...q, [type]: value }));
+}
+```
+On save (`finish()` and `saveBasicInfo()`), quotas are converted to the `RandomisationQuota[]` shape and sent as part of `AssessmentRequest`:
+```ts
+const randomisationQuotas: RandomisationQuota[] = this.randomiseQuestions()
+  ? (Object.entries(quotaMap) as [QuestionType, number][])
+      .filter(([, count]) =&gt; count &gt; 0)
+      .map(([questionType, count]) =&gt; ({ questionType, count }))
+  : [];
+```
+where `RandomisationQuota` (in `core/assessment/assessment.model.ts`) is:
+```ts
+export interface RandomisationQuota {
+  questionType: QuestionType;
+  count: number;
+}
+```
+
+**Adding questions to an assessment** (Step 2, "Questions"):
+- Browsing/filtering the bank uses `filteredBank` computed over `allQuestions` (loaded via `this.questionService.listQuestions()` in `ngOnInit`), filterable by `bankType`, `bankDifficulty`, `bankSearch`.
+- `addQuestion(questionId: string)` calls `this.assessmentService.addQuestion(assessmentId, { questionId, displayOrder: order })` → `POST /api/assessments/{id}/questions`, then replaces the local `assessment` signal with the response.
+- `removeQuestion(questionId)` calls `this.assessmentService.removeQuestion(assessmentId, questionId)` → `DELETE /api/assessments/{id}/questions/{questionId}`.
+- Reordering via CDK drag-drop (`drop()`) mutates local state and marks `orderChanged`; actual persistence happens later in `finish()` via `this.assessmentService.reorderQuestions(...)`.
+
+Basic-info form (Step 1) is a separate small reactive form:
+```ts
+readonly form = this.fb.nonNullable.group({
+  title: ['', Validators.required],
+  description: [''],
+  timeLimitMinutes: [60, [Validators.required, Validators.min(0)]],
+});
+```
+plus plain signals for `passingScore`, `accessType`, `accessPassword`, `startDate`, `endDate` (not part of the reactive `FormGroup`).
+
+## 5. HTTP client services for `/api/assessments` and `/api/questions`
+
+Both already read above in full — repeating pointers:
+- `recruitment-fe/src/app/core/question/question.service.ts` → `QuestionService` (see §1 for full content).
+- `recruitment-fe/src/app/core/assessment/assessment.service.ts` → `AssessmentService`, full content:
+```ts
+import { inject, Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import {
+  AddQuestionRequest,
+  Assessment,
+  AssessmentDetail,
+  AssessmentPreview,
+  AssessmentRequest,
+} from './assessment.model';
+
+@Injectable({ providedIn: 'root' })
+export class AssessmentService {
+  private readonly http = inject(HttpClient);
+
+  listAssessments(): Observable&lt;Assessment[]&gt; {
+    return this.http.get&lt;Assessment[]&gt;('/api/assessments');
+  }
+
+  getAssessment(id: string): Observable&lt;AssessmentDetail&gt; {
+    return this.http.get&lt;AssessmentDetail&gt;(`/api/assessments/${id}`);
+  }
+
+  createAssessment(req: AssessmentRequest): Observable&lt;AssessmentDetail&gt; {
+    return this.http.post&lt;AssessmentDetail&gt;('/api/assessments', req);
+  }
+
+  updateAssessment(id: string, req: AssessmentRequest): Observable&lt;AssessmentDetail&gt; {
+    return this.http.put&lt;AssessmentDetail&gt;(`/api/assessments/${id}`, req);
+  }
+
+  deleteAssessment(id: string): Observable&lt;void&gt; {
+    return this.http.delete&lt;void&gt;(`/api/assessments/${id}`);
+  }
+
+  publishAssessment(id: string): Observable&lt;AssessmentDetail&gt; {
+    return this.http.put&lt;AssessmentDetail&gt;(`/api/assessments/${id}/publish`, {});
+  }
+
+  addQuestion(assessmentId: string, req: AddQuestionRequest): Observable&lt;AssessmentDetail&gt; {
+    return this.http.post&lt;AssessmentDetail&gt;(`/api/assessments/${assessmentId}/questions`, req);
+  }
+
+  removeQuestion(assessmentId: string, questionId: string): Observable&lt;void&gt; {
+    return this.http.delete&lt;void&gt;(`/api/assessments/${assessmentId}/questions/${questionId}`);
+  }
+
+  reorderQuestions(assessmentId: string, order: { questionId: string; displayOrder: number }[]): Observable&lt;AssessmentDetail&gt; {
+    return this.http.put&lt;AssessmentDetail&gt;(`/api/assessments/${assessmentId}/questions/order`, { questions: order });
+  }
+
+  getPreview(assessmentId: string, token?: string): Observable&lt;AssessmentPreview&gt; {
+    const headers = token
+      ? new HttpHeaders({ Authorization: `Bearer ${token}` })
+      : new HttpHeaders();
+    return this.http.get&lt;AssessmentPreview&gt;(`/api/assessments/${assessmentId}/preview`, { headers });
+  }
+
+  verifyPassword(assessmentId: string, password: string, invitationToken: string): Observable&lt;{ valid: boolean }&gt; {
+    return this.http.post&lt;{ valid: boolean }&gt;(
+      `/api/candidate/assessments/${assessmentId}/verify-password`,
+      { password, invitationToken }
+    );
+  }
+}
+```
+Both services: no interceptor-level try/catch inside the service itself — errors propagate as `HttpErrorResponse` for the calling component's `.subscribe({ error })` to handle (as seen in `err?.error?.detail` and `err.status === 409` checks above).
+
+## 6. Existing Vitest test convention — full example
+
+No spec file exists for `question-form.component.ts`, `assessment-builder.component.ts`, `question.service.ts`, or `assessment.service.ts` specifically. The closest same-pattern example is `recruitment-fe/src/app/core/candidate/candidate.service.spec.ts` (full content):
+```ts
+import { TestBed } from '@angular/core/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { CandidateService } from './candidate.service';
+import { CandidateHistoryItem } from './candidate.model';
+import { throwError } from 'rxjs';
+
+const mockHistoryItem: CandidateHistoryItem = {
+  invitationId: 'inv-1',
+  assessmentId: 'a-1',
+  assessmentName: 'Java Assessment',
+  invitedAt: '2026-05-01T10:00:00Z',
+  submissionId: 's-1',
+  status: 'SUBMITTED',
+  submittedAt: '2026-05-02T10:00:00Z',
+  totalScore: 15,
+  markingStatus: 'FULLY_MARKED',
+  linkedRole: null,
+};
+
+describe('CandidateService — getHistory', () =&gt; {
+  let service: CandidateService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() =&gt; {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(CandidateService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() =&gt; httpMock.verify());
+
+  it('getHistory sends GET /api/candidates/{id}/history', () =&gt; {
+    service.getHistory('cand-1').subscribe(items =&gt; {
+      expect(items.length).toBe(1);
+      expect(items[0].assessmentName).toBe('Java Assessment');
+      expect(items[0].status).toBe('SUBMITTED');
+    });
+    const req = httpMock.expectOne('/api/candidates/cand-1/history');
+    expect(req.request.method).toBe('GET');
+    req.flush([mockHistoryItem]);
+  });
+  // ... plus empty-array and error-propagation cases
+});
+```
+Convention: no `HttpClientTestingModule`, uses standalone `provideHttpClient()` + `provideHttpClientTesting()` providers, `TestBed.inject`, `httpMock.expectOne(url)`, `req.flush(...)`, `afterEach(() =&gt; httpMock.verify())`.
+
+## 7. Backend-DTO-mirroring TypeScript types
+
+`recruitment-fe/src/app/core/question/question.model.ts` (full content — this is the file to extend/import from for AI request/response types):
+```ts
+export type QuestionType = 'MCQ' | 'TEXT' | 'CODE_SUBMISSION' | 'GROUP';
+export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
+
+export interface QuestionOption {
+  id: string;
+  text: string;
+  correct: boolean;
+}
+
+export interface Question {
+  id: string;
+  type: QuestionType;
+  title: string;
+  body: string;
+  tags: string[];
+  options: QuestionOption[] | null;
+  languageHint: string | null;
+  memberQuestions?: Question[];
+  maxScore: number;
+  difficulty: Difficulty | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuestionRequest {
+  type: QuestionType;
+  title: string;
+  body: string;
+  tags: string[];
+  options?: { text: string; correct: boolean }[];
+  languageHint?: string;
+  memberQuestionIds?: string[];
+  maxScore?: number;
+  difficulty?: Difficulty | null;
+}
+```
+`Difficulty` and `QuestionType` are re-exported/imported by `core/assessment/assessment.model.ts` (`import { Difficulty, QuestionType } from '../question/question.model';`) rather than redeclared — new AI models should do the same (`import { Difficulty, QuestionType } from '../question/question.model'`) instead of introducing a second enum.
+
+**Summary of gaps vs. the ticket's assumptions:** `core/ai/ai.service.ts` does not exist yet (net-new file, mirror `QuestionService`); `toast.service.ts` has no `.success()/.error()` sugar and no existing rate-limit-specific toast pattern (only a non-toast 429 case in `code-runner-panel.component.ts`); the assessment builder's Step 3 "Randomisation" quota UI is type-only, not tag/difficulty-based, so a tag/difficulty quota feature is additive, not an extension of existing fields.</result>
+<usage><subagent_tokens>69334</subagent_tokens><tool_uses>21</tool_uses><duration_ms>150442</duration_ms></usage>
+</task-notification>
+
+---
+
+## 2026-08-12 14:23 | nkosinathi.phiri | in: 2 out: 1701 | cache_read: 520664 cache_write: 17
+
+> what is it that these tickets have added so i can check it
+
+---
+
 ## 2026-08-13 09:23 | rodwe | in: 24 out: 4254 | cache_read: 550753 cache_write: 24963
 
 > Bugfix: Run all scripts in 'migration' directory and in 'seed' directory against local postgres and not docker postgres.
@@ -1731,6 +2271,42 @@ Relevant files reviewed:
 ## 2026-08-13 10:10 | rodwe | in: 259 out: 20036 | cache_read: 2152696 cache_write: 52426
 
 > rerun everything....delete all the tables except for users table and rerun all the scripts in migrations and seed. make sure everything works fine.
+
+---
+
+## 2026-08-12 14:35 | nkosinathi.phiri | in: 2 out: 1044 | cache_read: 522402 cache_write: 744
+
+> tell me what have been achieved so far and how can i view that on the frontend
+
+---
+
+## 2026-08-12 14:38 | nkosinathi.phiri | in: 8 out: 2470 | cache_read: 2099667 cache_write: 4322
+
+> i dont see any of these new features you speak of can you restart the applications
+
+---
+
+## 2026-08-12 14:43 | nkosinathi.phiri | in: 2 out: 80 | cache_read: 527743 cache_write: 17
+
+> thanks terrific work you should be proud of your self
+
+---
+
+## 2026-08-12 14:43 | nkosinathi.phiri | in: 2 out: 510 | cache_read: 527840 cache_write: 155
+
+> is this epic done now ?
+
+---
+
+## 2026-08-12 16:03 | nkosinathi.phiri | in: 4 out: 1248 | cache_read: 556008 cache_write: 510803
+
+> go to the jira board and find what tickets are assigned to me and are inprogress
+
+---
+
+## 2026-08-12 16:06 | nkosinathi.phiri | in: 4 out: 2997 | cache_read: 1077599 cache_write: 4988
+
+> nah summarize the above epic and the best ticket sequence
 
 ---
 

@@ -4,8 +4,11 @@ import tools.jackson.databind.ObjectMapper;
 import com.psybergate.recruitment.AbstractIntegrationTest;
 import com.psybergate.recruitment.TestDatasourceInitializer;
 import com.psybergate.recruitment.assessment.dto.AddAssessmentQuestionRequest;
+import com.psybergate.recruitment.assessment.dto.AssemblyQuotaDto;
+import com.psybergate.recruitment.assessment.dto.AssemblySuggestionRequest;
 import com.psybergate.recruitment.assessment.dto.AssessmentRequest;
 import com.psybergate.recruitment.assessment.dto.ReorderAssessmentQuestionsRequest;
+import com.psybergate.recruitment.domain.Difficulty;
 import com.psybergate.recruitment.domain.QuestionType;
 import com.psybergate.recruitment.domain.Role;
 import com.psybergate.recruitment.domain.User;
@@ -445,6 +448,55 @@ class AssessmentControllerIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void suggestQuestions_matchingTagAndDifficulty_returnsFromBankNoShortfall() throws Exception {
+        createTextQuestionViaApi("Java generics", List.of("java"), Difficulty.EASY);
+        createTextQuestionViaApi("Java streams", List.of("java"), Difficulty.EASY);
+        createTextQuestionViaApi("Java records", List.of("java"), Difficulty.HARD); // wrong difficulty
+        createTextQuestionViaApi("SQL joins", List.of("sql"), Difficulty.EASY); // wrong tag
+
+        AssemblyQuotaDto quota = new AssemblyQuotaDto("java", Difficulty.EASY, 2);
+        AssemblySuggestionRequest req = new AssemblySuggestionRequest(List.of(quota));
+
+        mockMvc.perform(post("/api/assessments/suggest-questions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcomes[0].suggested", hasSize(2)))
+                .andExpect(jsonPath("$.outcomes[0].shortfall").value(0))
+                .andExpect(jsonPath("$.outcomes[0].suggested[0].difficulty").value("EASY"))
+                .andExpect(jsonPath("$.outcomes[0].suggested[0].tags[0]").value("java"));
+    }
+
+    @Test
+    void suggestQuestions_notEnoughInBank_returnsShortfallInsteadOf400() throws Exception {
+        createTextQuestionViaApi("Only one match", List.of("rare-topic"), Difficulty.HARD);
+
+        AssemblyQuotaDto quota = new AssemblyQuotaDto("rare-topic", Difficulty.HARD, 5);
+        AssemblySuggestionRequest req = new AssemblySuggestionRequest(List.of(quota));
+
+        mockMvc.perform(post("/api/assessments/suggest-questions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcomes[0].suggested", hasSize(1)))
+                .andExpect(jsonPath("$.outcomes[0].shortfall").value(4));
+    }
+
+    @Test
+    void suggestQuestions_candidateRole_returns403() throws Exception {
+        AssemblyQuotaDto quota = new AssemblyQuotaDto("java", Difficulty.EASY, 1);
+        AssemblySuggestionRequest req = new AssemblySuggestionRequest(List.of(quota));
+
+        mockMvc.perform(post("/api/assessments/suggest-questions")
+                        .header("Authorization", "Bearer " + candidateToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
+
     // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private String createAssessmentViaApi(String title, int minutes) throws Exception {
@@ -460,6 +512,17 @@ class AssessmentControllerIntegrationTest extends AbstractIntegrationTest {
 
     private String createTextQuestionViaApi(String title) throws Exception {
         QuestionRequest req = new QuestionRequest(QuestionType.TEXT, title, "body", null, null, null, null, null, null);
+        String body = mockMvc.perform(post("/api/questions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    private String createTextQuestionViaApi(String title, List<String> tags, Difficulty difficulty) throws Exception {
+        QuestionRequest req = new QuestionRequest(QuestionType.TEXT, title, "body", tags, null, null, null, null, difficulty);
         String body = mockMvc.perform(post("/api/questions")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)

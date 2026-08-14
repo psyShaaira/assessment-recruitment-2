@@ -4,7 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CdkDragDrop, CdkDropList, CdkDrag, CdkDragHandle, moveItemInArray } from '@angular/cdk/drag-drop';
 import { AssessmentService } from '../../core/assessment/assessment.service';
 import { QuestionService } from '../../core/question/question.service';
-import { AssessmentDetail, RandomisationQuota } from '../../core/assessment/assessment.model';
+import { AssemblyQuota, AssemblyQuotaOutcome, AssessmentDetail, RandomisationQuota } from '../../core/assessment/assessment.model';
 import { Difficulty, Question, QuestionType } from '../../core/question/question.model';
 
 @Component({
@@ -130,15 +130,94 @@ import { Difficulty, Question, QuestionType } from '../../core/question/question
                   <span class="questions-count">{{ assessment()?.questions?.length ?? 0 }} Questions</span>
                   <span class="questions-meta">added to this assessment</span>
                 </div>
-                <button class="btn btn-secondary btn-sm" (click)="bankOpen.set(!bankOpen())">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                    <path d="M9 9h6M9 12h4"/>
-                  </svg>
-                  {{ bankOpen() ? 'Hide Bank' : 'Browse Bank' }}
-                </button>
+                <div class="questions-header-actions">
+                  <button class="btn btn-secondary btn-sm" (click)="suggestOpen.set(!suggestOpen())">
+                    ✨ {{ suggestOpen() ? 'Hide Suggestions' : 'Suggest with AI' }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" (click)="bankOpen.set(!bankOpen())">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                      <path d="M9 9h6M9 12h4"/>
+                    </svg>
+                    {{ bankOpen() ? 'Hide Bank' : 'Browse Bank' }}
+                  </button>
+                </div>
               </div>
+
+              @if (suggestOpen()) {
+                <div class="suggest-panel">
+                  <div class="suggest-panel-header">
+                    <span class="suggest-panel-title">✨ Suggest Questions with AI</span>
+                    <span class="suggest-panel-sub">Balance the set by tag and difficulty, drawn from the existing bank</span>
+                  </div>
+
+                  <div class="suggest-quota-list">
+                    @for (q of suggestQuotas(); track $index; let i = $index) {
+                      <div class="suggest-quota-row">
+                        <input class="field-input" style="flex: 1;" [value]="q.tag"
+                          (input)="updateSuggestQuota(i, 'tag', $any($event.target).value)" placeholder="tag e.g. java"/>
+                        <select class="bank-select" style="max-width: 130px;" [value]="q.difficulty"
+                          (change)="updateSuggestQuota(i, 'difficulty', $any($event.target).value)">
+                          @for (d of bankDifficultyFilters; track d.value) {
+                            <option [value]="d.value">{{ d.label }}</option>
+                          }
+                        </select>
+                        <input type="number" class="field-input" style="max-width: 70px;" [value]="q.count"
+                          (input)="updateSuggestQuota(i, 'count', +$any($event.target).value)" min="1"/>
+                        <button type="button" class="icon-btn danger" (click)="removeSuggestQuotaRow(i)"
+                          [disabled]="suggestQuotas().length <= 1" title="Remove quota">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+                    }
+                  </div>
+
+                  <div class="suggest-actions">
+                    <button type="button" class="btn btn-ghost btn-sm" (click)="addSuggestQuotaRow()">+ Add quota</button>
+                    <button type="button" class="btn btn-primary btn-sm" [disabled]="suggestLoading()" (click)="runSuggestQuestions()">
+                      {{ suggestLoading() ? 'Suggesting…' : 'Suggest' }}
+                    </button>
+                  </div>
+
+                  @if (suggestOutcomes().length > 0) {
+                    <div class="suggest-results">
+                      @for (outcome of suggestOutcomes(); track $index; let oi = $index) {
+                        <div class="suggest-outcome">
+                          <div class="suggest-outcome-header">
+                            <span>{{ outcome.quota.tag || 'any tag' }} · {{ outcome.quota.difficulty || 'any difficulty' }} · {{ outcome.quota.count }} requested</span>
+                            @if (outcome.shortfall > 0) {
+                              <span class="suggest-shortfall">{{ outcome.shortfall }} short — not enough matching questions in the bank</span>
+                            }
+                          </div>
+                          @for (sq of outcome.suggested; track sq.id; let qi = $index) {
+                            <div class="bank-item">
+                              <div class="bank-item-body">
+                                <div class="bank-item-badges">
+                                  <span class="type-badge type-{{ sq.type.toLowerCase() }}">{{ typeLabelMap[sq.type] }}</span>
+                                  @if (sq.difficulty) {
+                                    <span class="diff-badge diff-{{ sq.difficulty.toLowerCase() }}">{{ diffLabelMap[sq.difficulty] }}</span>
+                                  }
+                                </div>
+                                <p class="bank-item-title">{{ sq.title }}</p>
+                              </div>
+                              <div class="suggest-item-actions">
+                                <button class="add-btn" [class.added]="isAdded(sq.id)" [disabled]="isAdded(sq.id)"
+                                  (click)="addQuestion(sq.id)">{{ isAdded(sq.id) ? '✓' : '+ Accept' }}</button>
+                                <button class="btn btn-ghost btn-sm" [disabled]="isAdded(sq.id)"
+                                  (click)="swapSuggestion(oi, qi)" title="Get a different suggestion for this slot">⟳ Swap</button>
+                              </div>
+                            </div>
+                          }
+                          @if (outcome.suggested.length === 0) {
+                            <p class="bank-empty">No matching questions in the bank.</p>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
 
               <div class="question-list" cdkDropList (cdkDropListDropped)="drop($event)">
                 @if ((assessment()?.questions?.length ?? 0) === 0) {
@@ -857,6 +936,37 @@ import { Difficulty, Question, QuestionType } from '../../core/question/question
     .quota-input { width: 80px; flex-shrink: 0; }
 
     .quota-empty { font-size: 13px; color: var(--text-3); margin-top: 10px; }
+
+    /* AI suggestion panel */
+    .questions-header-actions { display: flex; gap: 8px; }
+
+    .suggest-panel {
+      margin-bottom: 14px; padding: 14px;
+      border: 1px solid var(--accent); border-radius: var(--radius-lg);
+      background: var(--accent-subtle);
+    }
+    .suggest-panel-header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+    .suggest-panel-title { font-size: 13px; font-weight: 600; color: var(--accent); }
+    .suggest-panel-sub { font-size: 12px; color: var(--text-2); }
+
+    .suggest-quota-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .suggest-quota-row { display: flex; align-items: center; gap: 8px; }
+
+    .suggest-actions { display: flex; align-items: center; gap: 8px; }
+
+    .suggest-results { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+
+    .suggest-outcome {
+      display: flex; flex-direction: column; gap: 6px;
+      padding-top: 10px; border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .suggest-outcome-header {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 12px; color: var(--text-2); flex-wrap: wrap; gap: 6px;
+    }
+    .suggest-shortfall { color: var(--danger); font-weight: 500; }
+
+    .suggest-item-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
   `],
 })
 export class AssessmentBuilderComponent implements OnInit {
@@ -884,6 +994,14 @@ export class AssessmentBuilderComponent implements OnInit {
   readonly endDate = signal('');
   readonly randomiseQuestions = signal(false);
   readonly randomisationQuotas = signal<Record<QuestionType, number>>({} as Record<QuestionType, number>);
+
+  // ── AI suggestion state ──────────────────────────────────────────────────
+  readonly suggestOpen = signal(false);
+  readonly suggestLoading = signal(false);
+  readonly suggestQuotas = signal<{ tag: string; difficulty: Difficulty | ''; count: number }[]>([
+    { tag: '', difficulty: '', count: 1 },
+  ]);
+  readonly suggestOutcomes = signal<AssemblyQuotaOutcome[]>([]);
 
   readonly form = this.fb.nonNullable.group({
     title: ['', Validators.required],
@@ -1145,6 +1263,61 @@ export class AssessmentBuilderComponent implements OnInit {
           a ? { ...a, questions: a.questions.filter(q => q.questionId !== questionId) } : a,
         ),
       error: () => this.error.set('Failed to remove question.'),
+    });
+  }
+
+  // ── AI suggestion ────────────────────────────────────────────────────────
+
+  updateSuggestQuota(index: number, field: 'tag' | 'difficulty' | 'count', value: string | number) {
+    this.suggestQuotas.update(rows => rows.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  }
+
+  addSuggestQuotaRow() {
+    this.suggestQuotas.update(rows => [...rows, { tag: '', difficulty: '' as Difficulty | '', count: 1 }]);
+  }
+
+  removeSuggestQuotaRow(index: number) {
+    this.suggestQuotas.update(rows => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
+  }
+
+  runSuggestQuestions() {
+    const quotas: AssemblyQuota[] = this.suggestQuotas()
+      .filter(q => q.count > 0)
+      .map(q => ({ tag: q.tag.trim() || null, difficulty: q.difficulty || null, count: q.count }));
+    if (quotas.length === 0) return;
+
+    this.suggestLoading.set(true);
+    this.assessmentService.suggestQuestions(quotas).subscribe({
+      next: res => {
+        this.suggestLoading.set(false);
+        this.suggestOutcomes.set(res.outcomes);
+      },
+      error: () => {
+        this.suggestLoading.set(false);
+        this.error.set('Failed to get suggestions. Please try again.');
+      },
+    });
+  }
+
+  // Best effort: re-suggests one question for this quota. The backend has no
+  // exclusion-list support, so on a small bank this can occasionally return
+  // the same question back rather than a genuinely different one.
+  swapSuggestion(outcomeIndex: number, questionIndex: number) {
+    const outcome = this.suggestOutcomes()[outcomeIndex];
+    if (!outcome) return;
+
+    this.assessmentService.suggestQuestions([{ ...outcome.quota, count: 1 }]).subscribe({
+      next: res => {
+        const replacement = res.outcomes[0]?.suggested[0];
+        if (!replacement) return;
+        this.suggestOutcomes.update(outcomes =>
+          outcomes.map((o, oi) => {
+            if (oi !== outcomeIndex) return o;
+            return { ...o, suggested: o.suggested.map((s, qi) => (qi === questionIndex ? replacement : s)) };
+          }),
+        );
+      },
+      error: () => this.error.set('Failed to swap suggestion. Please try again.'),
     });
   }
 }

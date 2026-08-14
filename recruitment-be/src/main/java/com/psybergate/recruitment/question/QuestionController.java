@@ -1,5 +1,7 @@
 package com.psybergate.recruitment.question;
 
+import com.psybergate.recruitment.ai.QuestionGenerationService;
+import com.psybergate.recruitment.question.dto.GenerateQuestionRequest;
 import com.psybergate.recruitment.question.dto.QuestionRequest;
 import com.psybergate.recruitment.question.dto.QuestionResponse;
 import jakarta.validation.Valid;
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class QuestionController {
 
     private final QuestionService questionService;
+    private final QuestionGenerationService questionGenerationService;
 
     @PostMapping
     public ResponseEntity<QuestionResponse> create(@RequestBody @Valid QuestionRequest request,
@@ -49,5 +52,10 @@ public class QuestionController {
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         questionService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/generate")
+    public ResponseEntity<List<QuestionRequest>> generate(@RequestBody @Valid GenerateQuestionRequest request) {
+        return ResponseEntity.ok(questionGenerationService.generate(request));
     }
 }
