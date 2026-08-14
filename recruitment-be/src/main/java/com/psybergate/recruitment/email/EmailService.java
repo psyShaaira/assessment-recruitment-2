@@ -10,4 +10,5 @@ public interface EmailService {
     void sendReminder(Candidate candidate, Assessment assessment, Instant expiresAt, String invitationLink);
     void sendCancellation(Candidate candidate, Assessment assessment);
     void sendContactMessage(Candidate candidate, String subject, String message);
+    void sendFeedbackReport(Candidate candidate, String plainTextBody);
 }
