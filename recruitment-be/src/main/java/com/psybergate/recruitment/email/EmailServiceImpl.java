@@ -63,6 +63,15 @@ public class EmailServiceImpl implements EmailService {
         mailSender.send(mail);
     }
 
+    @Override
+    public void sendFeedbackReport(Candidate candidate, String plainTextBody) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(candidate.getEmail());
+        message.setSubject("Your Assessment Feedback");
+        message.setText(plainTextBody);
+        mailSender.send(message);
+    }
+
     private String buildReminderBody(Candidate candidate, Assessment assessment,
                                       String invitationLink, Instant expiresAt) {
         return "Hi " + candidate.getFirstName() + ",\n\n"
