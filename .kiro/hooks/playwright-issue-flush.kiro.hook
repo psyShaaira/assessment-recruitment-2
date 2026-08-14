@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "name": "Flush Playwright Issue Log",
+  "description": "At the end of an agent turn, flushes any pending Playwright testing issue notes from .kiro/pw-pending.txt into the persistent .kiro/playwright-issues.md log under a timestamped heading, then clears the pending file.",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Check whether the file `.kiro/pw-pending.txt` exists and has non-empty content (ignoring whitespace-only content).\n\n- If it does not exist, or exists but is empty/whitespace-only: do nothing. Do not create or modify `.kiro/playwright-issues.md`. Stop here.\n- Otherwise (it exists and has non-empty content):\n  1. If `.kiro/playwright-issues.md` does not exist yet, create it with a single top-level heading `# Playwright Issue Log` (and nothing else).\n  2. Append a new section to the end of `.kiro/playwright-issues.md` in exactly this form:\n\n     ```\n     ## <current timestamp>\n\n     <verbatim contents of .kiro/pw-pending.txt>\n\n     ---\n     ```\n\n     Use the current date/time for `<current timestamp>` (e.g. `YYYY-MM-DD HH:mm:ss`). Insert the pending file's contents verbatim (do not summarize, reformat, or alter them) between the heading and the `---` separator.\n  3. Clear `.kiro/pw-pending.txt` so it is empty (truncate it, do not delete the file itself).\n\nDo this silently as part of ending the turn; do not narrate this action to the user unless an error occurs."
+  },
+  "workspaceFolderName": "assessment-recruitment-2",
+  "shortName": "playwright-issue-flush"
+}
