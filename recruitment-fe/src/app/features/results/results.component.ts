@@ -11,6 +11,30 @@ import { FeedbackService } from '../../core/feedback/feedback.service';
 import { FeedbackReportResponse } from '../../core/feedback/feedback.model';
 import { Subscription, timeout } from 'rxjs';
 import { CodeEditorComponent } from '../../shared/code-editor/code-editor.component';
+import { AiMarkingService } from '../../core/ai-marking/ai-marking.service';
+import { AiMarkingSuggestionResponse, AiSuggestionErrorKind } from '../../core/ai-marking/ai-marking.model';
+
+/**
+ * True if the answer content is non-null and contains at least one
+ * non-whitespace character.
+ */
+export function hasAnswerContent(answer: string | null): boolean {
+  return answer != null && answer.trim().length > 0;
+}
+
+/**
+ * True if a question is eligible for AI-assisted marking: its type is
+ * TEXT or CODE_SUBMISSION and its candidate answer has content. GROUP
+ * questions are never eligible themselves (their type excludes them) —
+ * their individually-markable sub-questions are checked separately via
+ * this same predicate.
+ */
+export function isAiEligibleQuestion(q: ResultQuestion): boolean {
+  return (
+    (q.questionType === 'TEXT' || q.questionType === 'CODE_SUBMISSION') &&
+    hasAnswerContent(q.candidateAnswer)
+  );
+}
 
 @Component({
   selector: 'app-results',
@@ -1024,6 +1048,7 @@ export class ResultsComponent implements OnInit {
   private readonly reminderSvc = inject(ReminderService);
   private readonly route = inject(ActivatedRoute);
   private readonly feedbackSvc = inject(FeedbackService);
+  private readonly aiMarkingSvc = inject(AiMarkingService);
 
   readonly submissions = signal<SubmissionSummary[]>([]);
   readonly selectedSummary = signal<SubmissionSummary | null>(null);
@@ -1062,6 +1087,16 @@ export class ResultsComponent implements OnInit {
 
   readonly editScores = signal<Record<string, number | undefined>>({});
   readonly editFeedback = signal<Record<string, string | undefined>>({});
+
+  // Per-question AI suggestion state — Record keyed by questionId
+  readonly aiSuggestions = signal<Record<string, AiMarkingSuggestionResponse | undefined>>({});
+  readonly aiLoading = signal<Record<string, boolean>>({});
+  readonly aiError = signal<Record<string, AiSuggestionErrorKind | undefined>>({});
+  readonly aiAccessDenied = signal<Record<string, boolean>>({});
+
+  // Stale-response guarding — plain fields, not signals (internal bookkeeping only)
+  private aiGeneration = 0;
+  private aiRequestSeq: Record<string, number> = {};
 
   readonly statusFilters = [
     { value: '', label: 'All' },
@@ -1115,6 +1150,25 @@ export class ResultsComponent implements OnInit {
     return list.filter(s => s.status === statusF);
   });
 
+  // AI marking suggestion eligibility — applies to top-level questions and,
+  // separately, to each GROUP question's subQuestions; never to the GROUP
+  // question itself.
+  readonly eligibleQuestionIds = computed<string[]>(() => {
+    const r = this.result();
+    if (!r) return [];
+    const ids: string[] = [];
+    for (const q of r.questions) {
+      if (q.questionType === 'GROUP') {
+        for (const sub of q.subQuestions ?? []) {
+          if (isAiEligibleQuestion(sub)) ids.push(sub.questionId);
+        }
+      } else if (isAiEligibleQuestion(q)) {
+        ids.push(q.questionId);
+      }
+    }
+    return ids;
+  });
+
   ngOnInit() {
     this.loadingList.set(true);
     this.markingSvc.listAllSubmissions().subscribe({
@@ -1153,6 +1207,12 @@ export class ResultsComponent implements OnInit {
     this.feedbackError.set(null);
     this.regenerating.set(false);
     this.regenerateError.set(null);
+    this.aiGeneration++;
+    this.aiRequestSeq = {};
+    this.aiSuggestions.set({});
+    this.aiLoading.set({});
+    this.aiError.set({});
+    this.aiAccessDenied.set({});
     // NOT_STARTED candidates have no submission to load
     if (s.status !== 'NOT_STARTED' && s.submissionId) {
       const submissionId = s.submissionId;
