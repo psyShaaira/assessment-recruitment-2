@@ -106,6 +106,22 @@ class QuestionGenerationServiceImplTest {
     }
 
     @Test
+    void generate_mcqNearDuplicateOptions_retriesOnceThenThrowsIfStillInvalid() {
+        when(aiService.prompt(anyString())).thenReturn("""
+                {"title": "Concurrency", "body": "...",
+                 "options": [{"text": "A race condition", "correct": true},
+                             {"text": "A race condition, technically speaking", "correct": false}]}
+                """);
+
+        GenerateQuestionRequest req = new GenerateQuestionRequest(QuestionType.MCQ, "java", Difficulty.EASY, 1);
+
+        assertThatThrownBy(() -> service.generate(req))
+                .isInstanceOf(AiGenerationValidationException.class)
+                .hasMessageContaining("too similar to distinguish");
+        verify(aiService, times(2)).prompt(anyString());
+    }
+
+    @Test
     void generate_malformedJson_retriesOnceThenThrowsClearError() {
         when(aiService.prompt(anyString())).thenReturn("this is not json at all");
 
