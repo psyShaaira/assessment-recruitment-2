@@ -1,79 +1,41 @@
 package com.psybergate.recruitment.ai;
 
-import com.psybergate.recruitment.ai.client.GroqClient;
-import com.psybergate.recruitment.ai.dto.GroqChatResponse;
-import com.psybergate.recruitment.ai.dto.GroqChoice;
-import com.psybergate.recruitment.ai.dto.GroqMessage;
+import com.psybergate.recruitment.ai.support.GroqTestHarness;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestTemplate;
-import tools.jackson.databind.ObjectMapper;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class GroqClientTest {
 
-    private static final String BASE_URL = "https://api.groq.com/openai/v1";
-    private static final String API_KEY = "test-secret-key";
-    private static final String MODEL = "llama3-8b-8192";
-
-    private MockRestServiceServer mockServer;
-    private GroqClient groqClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    private AiProperties props() {
-        return new AiProperties(API_KEY, BASE_URL, MODEL, 0.7, 30);
-    }
+    private GroqTestHarness harness;
 
     @BeforeEach
     void setUp() {
-        RestTemplate restTemplate = new RestTemplate();
-        restTemplate.setUriTemplateHandler(new org.springframework.web.util.DefaultUriBuilderFactory(BASE_URL));
-        mockServer = MockRestServiceServer.createServer(restTemplate);
-        RestClient restClient = RestClient.create(restTemplate);
-        groqClient = new GroqClient(props(), restClient);
-    }
-
-    private String validResponseBody(String content) throws Exception {
-        GroqChatResponse response = new GroqChatResponse(
-                List.of(new GroqChoice(new GroqMessage("assistant", content)))
-        );
-        return objectMapper.writeValueAsString(response);
+        harness = GroqTestHarness.create();
     }
 
     // ── happy path ────────────────────────────────────────────────────────────
 
     @Test
-    void sendPrompt_200WithContent_returnsContent() throws Exception {
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andExpect(method(HttpMethod.POST))
-                .andExpect(header("Authorization", "Bearer " + API_KEY))
-                .andRespond(withSuccess(validResponseBody("Hello!"), MediaType.APPLICATION_JSON));
+    void sendPrompt_200WithContent_returnsContent() {
+        harness.stubValidCompletion("Hello!");
 
-        String result = groqClient.sendPrompt("hi");
+        String result = harness.client().sendPrompt("hi");
 
         assertThat(result).isEqualTo("Hello!");
-        mockServer.verify();
+        harness.verify();
     }
 
     // ── error status mapping ──────────────────────────────────────────────────
 
     @Test
     void sendPrompt_401_throwsAiAuthenticationException() {
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+        harness.stubUnauthorized();
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .isInstanceOf(AiAuthenticationException.class)
                 .extracting(Throwable::getMessage)
                 .asString()
@@ -84,10 +46,9 @@ class GroqClientTest {
 
     @Test
     void sendPrompt_429_throwsAiRateLimitException() {
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        harness.stubRateLimited();
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .isInstanceOf(AiRateLimitException.class)
                 .extracting(Throwable::getMessage)
                 .asString()
@@ -98,10 +59,9 @@ class GroqClientTest {
 
     @Test
     void sendPrompt_500_throwsAiCommunicationException() {
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withServerError());
+        harness.stubServerError();
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .isInstanceOf(AiCommunicationException.class)
                 .extracting(Throwable::getMessage)
                 .asString()
@@ -112,10 +72,9 @@ class GroqClientTest {
 
     @Test
     void sendPrompt_503_throwsAiCommunicationException() {
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        harness.stubServiceUnavailable();
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .isInstanceOf(AiCommunicationException.class)
                 .extracting(Throwable::getMessage)
                 .asString()
@@ -124,17 +83,24 @@ class GroqClientTest {
                 .doesNotContain("503");
     }
 
+    @Test
+    void sendPrompt_timeout_throwsAiTimeoutException() {
+        harness.stubTimeout();
+
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
+                .isInstanceOf(AiTimeoutException.class)
+                .extracting(Throwable::getMessage)
+                .asString()
+                .isNotBlank();
+    }
+
     // ── content validation ────────────────────────────────────────────────────
 
     @Test
-    void sendPrompt_nullContent_throwsAiResponseException() throws Exception {
-        GroqChatResponse response = new GroqChatResponse(
-                List.of(new GroqChoice(new GroqMessage("assistant", null)))
-        );
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withSuccess(objectMapper.writeValueAsString(response), MediaType.APPLICATION_JSON));
+    void sendPrompt_emptyChoices_throwsAiResponseException() {
+        harness.stubEmptyResponse();
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .isInstanceOf(AiResponseException.class)
                 .extracting(Throwable::getMessage)
                 .asString()
@@ -142,26 +108,46 @@ class GroqClientTest {
     }
 
     @Test
-    void sendPrompt_blankContent_throwsAiResponseException() throws Exception {
-        GroqChatResponse response = new GroqChatResponse(
-                List.of(new GroqChoice(new GroqMessage("assistant", "   ")))
-        );
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withSuccess(objectMapper.writeValueAsString(response), MediaType.APPLICATION_JSON));
+    void sendPrompt_nullContent_throwsAiResponseException() {
+        harness.stubValidCompletion(null);
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .isInstanceOf(AiResponseException.class)
                 .extracting(Throwable::getMessage)
                 .asString()
                 .isNotBlank();
+    }
+
+    @Test
+    void sendPrompt_blankContent_throwsAiResponseException() {
+        harness.stubValidCompletion("   ");
+
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
+                .isInstanceOf(AiResponseException.class)
+                .extracting(Throwable::getMessage)
+                .asString()
+                .isNotBlank();
+    }
+
+    @Test
+    void sendPrompt_malformedJson_throwsAiResponseExceptionWithoutLeakingInternals() {
+        harness.stubMalformedJson();
+
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
+                .isInstanceOf(AiResponseException.class)
+                .extracting(Throwable::getMessage)
+                .asString()
+                .isNotBlank()
+                .doesNotContain("RestClientException")
+                .doesNotContain("GroqChatResponse");
     }
 
     // ── blank API key ─────────────────────────────────────────────────────────
 
     @Test
     void sendPrompt_blankApiKey_throwsAiAuthenticationExceptionBeforeHttpCall() {
-        AiProperties noKey = new AiProperties("", BASE_URL, MODEL, 0.7, 30);
-        GroqClient clientNoKey = new GroqClient(noKey, RestClient.create());
+        AiProperties noKey = new AiProperties("", GroqTestHarness.BASE_URL, GroqTestHarness.MODEL, 0.7, 30);
+        var clientNoKey = new com.psybergate.recruitment.ai.client.GroqClient(noKey, RestClient.create());
 
         assertThatThrownBy(() -> clientNoKey.sendPrompt("hi"))
                 .isInstanceOf(AiAuthenticationException.class)
@@ -170,19 +156,18 @@ class GroqClientTest {
                 .isNotBlank()
                 .doesNotContain("Groq");
 
-        mockServer.verify();
+        harness.verify();
     }
 
     // ── message safety ────────────────────────────────────────────────────────
 
     @Test
     void sendPrompt_401_messageDoesNotContainApiKey() {
-        mockServer.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+        harness.stubUnauthorized();
 
-        assertThatThrownBy(() -> groqClient.sendPrompt("hi"))
+        assertThatThrownBy(() -> harness.client().sendPrompt("hi"))
                 .extracting(Throwable::getMessage)
                 .asString()
-                .doesNotContain(API_KEY);
+                .doesNotContain(GroqTestHarness.API_KEY);
     }
 }
