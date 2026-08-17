@@ -45,7 +45,7 @@ public final class GroqTestHarness {
 
     public static final String BASE_URL = "https://api.groq.com/openai/v1";
     public static final String API_KEY = "test-secret-key";
-    public static final String MODEL = "llama3-8b-8192";
+    public static final String MODEL = "openai/gpt-oss-120b";
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -130,5 +130,33 @@ public final class GroqTestHarness {
         return OBJECT_MAPPER.writeValueAsString(new GroqChatResponse(
                 List.of(new GroqChoice(new GroqMessage("assistant", content)))
         ));
+    }
+
+    /**
+     * 200 response shaped like a real Groq API response — includes extra fields
+     * (id, object, created, model, usage, system_fingerprint, x_groq) that the
+     * DTO records don't declare. Verifies that unknown-property tolerance works.
+     */
+    public void stubRealisticCompletion(String content) {
+        String body = """
+                {
+                  "id": "chatcmpl-abc123",
+                  "object": "chat.completion",
+                  "created": 1700000000,
+                  "model": "%s",
+                  "choices": [
+                    {
+                      "index": 0,
+                      "message": { "role": "assistant", "content": %s },
+                      "logprobs": null,
+                      "finish_reason": "stop"
+                    }
+                  ],
+                  "usage": { "prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30 },
+                  "system_fingerprint": "fp_abc123",
+                  "x_groq": { "id": "req_xyz" }
+                }
+                """.formatted(MODEL, content == null ? "null" : OBJECT_MAPPER.writeValueAsString(content));
+        expectChatCompletion().andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
     }
 }

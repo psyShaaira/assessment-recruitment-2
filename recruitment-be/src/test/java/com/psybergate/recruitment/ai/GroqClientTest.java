@@ -142,6 +142,16 @@ class GroqClientTest {
                 .doesNotContain("GroqChatResponse");
     }
 
+    @Test
+    void sendPrompt_realisticResponseWithExtraFields_returnsContent() {
+        harness.stubRealisticCompletion("Hello from Groq!");
+
+        String result = harness.client().sendPrompt("hi");
+
+        assertThat(result).isEqualTo("Hello from Groq!");
+        harness.verify();
+    }
+
     // ── blank API key ─────────────────────────────────────────────────────────
 
     @Test
