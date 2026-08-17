@@ -468,6 +468,33 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                               <button class="save-btn secondary" (click)="saveScore(sub)" [disabled]="saving()">Override</button>
                             </div>
                           }
+                          @if (isAiEligibleQuestion(sub)) {
+                            <section class="ai-suggestion-panel" [attr.aria-busy]="aiLoading()[sub.questionId]">
+                              @if (aiAccessDenied()[sub.questionId]) {
+                                <div class="ai-error ai-access-denied">Access denied — you do not have permission to request AI suggestions.</div>
+                              } @else if (aiLoading()[sub.questionId]) {
+                                <div class="ai-loading"><span class="loading-dot"></span> Requesting AI suggestion…</div>
+                              } @else if (aiSuggestions()[sub.questionId]) {
+                                <div class="ai-suggestion-header">
+                                  <span class="ai-badge">AI Suggestion</span>
+                                  <span class="ai-score">{{ aiSuggestions()[sub.questionId]!.score }}/{{ aiSuggestions()[sub.questionId]!.maxScore }}</span>
+                                  <button class="save-btn secondary" (click)="copyAiScoreToMark(sub.questionId)">Use this score</button>
+                                  <button class="save-btn secondary" (click)="requestAiSuggestion(result()!.submissionId, sub.questionId)">Regenerate</button>
+                                </div>
+                                <p class="ai-rationale">{{ aiSuggestions()[sub.questionId]!.rationale }}</p>
+                                <div class="ai-meta">Generated: {{ formatDateTime(aiSuggestions()[sub.questionId]!.generatedAt) }}</div>
+                              } @else {
+                                <div class="ai-request-row">
+                                  <button class="save-btn secondary" (click)="requestAiSuggestion(result()!.submissionId, sub.questionId)">Get AI Suggestion</button>
+                                  @if (aiError()[sub.questionId] === 'ineligible') {
+                                    <span class="ai-error">Not eligible for AI-assisted marking.</span>
+                                  } @else if (aiError()[sub.questionId] === 'error') {
+                                    <span class="ai-error">Could not get AI suggestion. Please try again.</span>
+                                  }
+                                </div>
+                              }
+                            </section>
+                          }
                         </div>
                       }
                     </div>
@@ -519,6 +546,33 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                                  placeholder="{{ q.score }}" />
                           <button class="save-btn secondary" (click)="saveScore(q)" [disabled]="saving()">Override</button>
                         </div>
+                      }
+                      @if (isAiEligibleQuestion(q)) {
+                        <section class="ai-suggestion-panel" [attr.aria-busy]="aiLoading()[q.questionId]">
+                          @if (aiAccessDenied()[q.questionId]) {
+                            <div class="ai-error ai-access-denied">Access denied — you do not have permission to request AI suggestions.</div>
+                          } @else if (aiLoading()[q.questionId]) {
+                            <div class="ai-loading"><span class="loading-dot"></span> Requesting AI suggestion…</div>
+                          } @else if (aiSuggestions()[q.questionId]) {
+                            <div class="ai-suggestion-header">
+                              <span class="ai-badge">AI Suggestion</span>
+                              <span class="ai-score">{{ aiSuggestions()[q.questionId]!.score }}/{{ aiSuggestions()[q.questionId]!.maxScore }}</span>
+                              <button class="save-btn secondary" (click)="copyAiScoreToMark(q.questionId)">Use this score</button>
+                              <button class="save-btn secondary" (click)="requestAiSuggestion(result()!.submissionId, q.questionId)">Regenerate</button>
+                            </div>
+                            <p class="ai-rationale">{{ aiSuggestions()[q.questionId]!.rationale }}</p>
+                            <div class="ai-meta">Generated: {{ formatDateTime(aiSuggestions()[q.questionId]!.generatedAt) }}</div>
+                          } @else {
+                            <div class="ai-request-row">
+                              <button class="save-btn secondary" (click)="requestAiSuggestion(result()!.submissionId, q.questionId)">Get AI Suggestion</button>
+                              @if (aiError()[q.questionId] === 'ineligible') {
+                                <span class="ai-error">Not eligible for AI-assisted marking.</span>
+                              } @else if (aiError()[q.questionId] === 'error') {
+                                <span class="ai-error">Could not get AI suggestion. Please try again.</span>
+                              }
+                            </div>
+                          }
+                        </section>
                       }
                     </div>
                   }
@@ -1040,6 +1094,49 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
       line-height: 1;
     }
     .dismiss-btn:hover { color: var(--text-1); }
+
+    .ai-suggestion-panel {
+      margin-top: 10px;
+      padding: 12px 14px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+
+    .ai-suggestion-header {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .ai-score {
+      font-size: 13px; font-weight: 600; color: var(--text-1);
+    }
+
+    .ai-rationale {
+      font-size: 12.5px; color: var(--text-2); line-height: 1.6;
+      margin: 0 0 8px;
+    }
+
+    .ai-meta {
+      font-size: 11.5px; color: var(--text-3);
+    }
+
+    .ai-loading {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12.5px; color: var(--text-2);
+    }
+
+    .ai-error {
+      font-size: 12.5px; color: var(--danger);
+    }
+
+    .ai-access-denied {
+      font-size: 12.5px; color: var(--danger);
+    }
+
+    .ai-request-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
   `],
 })
 export class ResultsComponent implements OnInit {
@@ -1097,6 +1194,9 @@ export class ResultsComponent implements OnInit {
   // Stale-response guarding — plain fields, not signals (internal bookkeeping only)
   private aiGeneration = 0;
   private aiRequestSeq: Record<string, number> = {};
+
+  // Exposed so the template can call the standalone eligibility predicate directly.
+  readonly isAiEligibleQuestion = isAiEligibleQuestion;
 
   readonly statusFilters = [
     { value: '', label: 'All' },
@@ -1224,6 +1324,7 @@ export class ResultsComponent implements OnInit {
           if (r.markingStatus === 'FULLY_MARKED') {
             this.loadFeedbackReport(submissionId);
           }
+          this.loadAiSuggestions(submissionId);
         },
         error: () => this.loadingResult.set(false),
       });
@@ -1272,6 +1373,105 @@ export class ResultsComponent implements OnInit {
         }
       },
     });
+  }
+
+  private isCurrentAiRequest(questionId: string, generation: number, seq: number): boolean {
+    return this.aiGeneration === generation && this.aiRequestSeq[questionId] === seq;
+  }
+
+  /**
+   * Total, mutually-exclusive mapping from a failed generate/fetch HTTP
+   * outcome to one of the named AI suggestion failure states:
+   *  - fetch 404            -> "no suggestion yet" (no state mutated, no error shown)
+   *  - 401 / 403            -> sticky aiAccessDenied[questionId] = true
+   *  - 400 on generate only -> aiError[questionId] = 'ineligible'
+   *  - anything else        -> aiError[questionId] = 'error'
+   *    (other 4xx/5xx statuses, or no response at all e.g. network error/timeout)
+   */
+  private applyAiErrorClassification(questionId: string, err: HttpErrorResponse, isGetFetch: boolean): void {
+    if (err.status === 404 && isGetFetch) {
+      return;
+    }
+    if (err.status === 401 || err.status === 403) {
+      this.aiAccessDenied.update(s => ({ ...s, [questionId]: true }));
+      return;
+    }
+    if (err.status === 400 && !isGetFetch) {
+      this.aiError.update(s => ({ ...s, [questionId]: 'ineligible' }));
+      return;
+    }
+    this.aiError.update(s => ({ ...s, [questionId]: 'error' }));
+  }
+
+  private fetchAiSuggestion(submissionId: string, questionId: string): void {
+    const generation = this.aiGeneration;
+    const seq = (this.aiRequestSeq[questionId] ?? 0) + 1;
+    this.aiRequestSeq[questionId] = seq;
+    this.aiLoading.update(s => ({ ...s, [questionId]: true }));
+
+    this.aiMarkingSvc.getSuggestion(submissionId, questionId).subscribe({
+      next: suggestion => {
+        if (!this.isCurrentAiRequest(questionId, generation, seq)) return;
+        this.aiSuggestions.update(s => ({ ...s, [questionId]: suggestion }));
+        this.aiError.update(s => ({ ...s, [questionId]: undefined }));
+        this.aiLoading.update(s => ({ ...s, [questionId]: false }));
+      },
+      error: (err: HttpErrorResponse) => {
+        if (!this.isCurrentAiRequest(questionId, generation, seq)) return;
+        this.applyAiErrorClassification(questionId, err, /* isGetFetch */ true);
+        this.aiLoading.update(s => ({ ...s, [questionId]: false }));
+      },
+    });
+  }
+
+  private loadAiSuggestions(submissionId: string): void {
+    for (const questionId of this.eligibleQuestionIds()) {
+      this.fetchAiSuggestion(submissionId, questionId);
+    }
+  }
+
+  /**
+   * Requests (or regenerates) an AI marking suggestion for a single answer.
+   * Handles both the first request and every subsequent regeneration — the
+   * backend endpoint and dispatch path are identical either way. No-op while
+   * a request is already in flight for this answer, or once access has been
+   * denied for it.
+   */
+  requestAiSuggestion(submissionId: string, questionId: string): void {
+    if (this.aiLoading()[questionId] || this.aiAccessDenied()[questionId]) return;
+
+    const generation = this.aiGeneration;
+    const seq = (this.aiRequestSeq[questionId] ?? 0) + 1;
+    this.aiRequestSeq[questionId] = seq;
+    this.aiLoading.update(s => ({ ...s, [questionId]: true }));
+    this.aiError.update(s => ({ ...s, [questionId]: undefined }));
+
+    this.aiMarkingSvc.generateSuggestion(submissionId, questionId).subscribe({
+      next: suggestion => {
+        if (!this.isCurrentAiRequest(questionId, generation, seq)) return;
+        this.aiSuggestions.update(s => ({ ...s, [questionId]: suggestion }));
+        this.aiError.update(s => ({ ...s, [questionId]: undefined }));
+        this.aiLoading.update(s => ({ ...s, [questionId]: false }));
+      },
+      error: (err: HttpErrorResponse) => {
+        if (!this.isCurrentAiRequest(questionId, generation, seq)) return;
+        this.applyAiErrorClassification(questionId, err, /* isGetFetch */ false);
+        this.aiLoading.update(s => ({ ...s, [questionId]: false }));
+      },
+    });
+  }
+
+  /**
+   * Copies the currently displayed AI suggestion's score into the manual
+   * mark input for the given answer. Pure client-side signal write — no
+   * HTTP call — reusing the existing `editScores` map so `saveScore()`
+   * needs no changes. No-op if no suggestion is currently displayed for
+   * this answer.
+   */
+  copyAiScoreToMark(questionId: string): void {
+    const suggestion = this.aiSuggestions()[questionId];
+    if (!suggestion) return;
+    this.editScores.update(s => ({ ...s, [questionId]: suggestion.score }));
   }
 
   regenerateReport(): void {

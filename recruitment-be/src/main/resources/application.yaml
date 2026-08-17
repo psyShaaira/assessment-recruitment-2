@@ -4,7 +4,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/recruitment}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:bacrod}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
   flyway:
     locations: classpath:db/migration
@@ -18,8 +18,8 @@ spring:
   mail:
     host: ${SPRING_MAIL_HOST:smtp.gmail.com}
     port: ${SPRING_MAIL_PORT:587}
-    username: ${SPRING_MAIL_USERNAME:bacrodb@gmail.com}
-    password: ${SPRING_MAIL_PASSWORD:wint ooww ijoj tfsg}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
@@ -50,6 +50,6 @@ ai:
   groq:
     api-key: ${GROQ_API_KEY:}
     base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
-    model: ${GROQ_MODEL:llama-3.3-70b-versatile}
+    model: ${GROQ_MODEL:openai/gpt-oss-120b}
     temperature: ${GROQ_TEMPERATURE:0.7}
     timeout-seconds: ${GROQ_TIMEOUT_SECONDS:30}

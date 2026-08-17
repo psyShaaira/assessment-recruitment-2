@@ -47,12 +47,12 @@ they stay independent of each other and of the example-based unit tests in
     - _Requirements: 8.2, 8.3, 8.4_
 
 - [ ] 3. Add per-answer AI suggestion state and the fetch-on-select flow
-  - [-] 3.1 Add AI state signals and reset-on-submission-change logic
+  - [x] 3.1 Add AI state signals and reset-on-submission-change logic
     - Add `aiSuggestions`, `aiLoading`, `aiError`, `aiAccessDenied` `Record<string, T>` signals and the `aiGeneration`/`aiRequestSeq` bookkeeping fields to `results.component.ts`; inject `AiMarkingService`
     - In `selectSubmission()`, bump `aiGeneration` and reset all four AI Record signals alongside the existing feedback-state reset
     - _Requirements: 1.6, 6.5_
 
-  - [ ] 3.2 Implement `fetchAiSuggestion` and the `loadAiSuggestions` fan-out
+  - [x] 3.2 Implement `fetchAiSuggestion` and the `loadAiSuggestions` fan-out
     - Implement `isCurrentAiRequest(questionId, generation, seq)` guard
     - Implement `fetchAiSuggestion(submissionId, questionId)`, setting `aiLoading[questionId]` and updating `aiSuggestions`/`aiError` on response, discarding stale responses via the guard
     - Implement `loadAiSuggestions(submissionId)`, dispatching one `fetchAiSuggestion` call per id in `eligibleQuestionIds()`, invoked after `getResult()` succeeds in `selectSubmission()`
@@ -73,12 +73,12 @@ they stay independent of each other and of the example-based unit tests in
 - [ ] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement the generate/regenerate request path and HTTP error classification
-  - [ ] 5.1 Implement `applyAiErrorClassification`
+- [x] 5. Implement the generate/regenerate request path and HTTP error classification
+  - [x] 5.1 Implement `applyAiErrorClassification`
     - Map a fetch's 404 to "no suggestion yet" (no state change, no error), 401/403 to sticky `aiAccessDenied`, 400 (generate only) to `aiError = 'ineligible'`, and any other 4xx/5xx or no-response outcome to `aiError = 'error'`
     - _Requirements: 4.4, 4.5, 4.6, 7.2, 7.3, 8.1_
 
-  - [ ] 5.2 Implement `requestAiSuggestion`
+  - [x] 5.2 Implement `requestAiSuggestion`
     - No-op if `aiLoading()[questionId]` or `aiAccessDenied()[questionId]` is `true`
     - Otherwise capture `generation`/`seq`, set `aiLoading[questionId] = true`, clear `aiError[questionId]`, call `AiMarkingService.generateSuggestion`, and on response (guarded by `isCurrentAiRequest`) either replace `aiSuggestions[questionId]` on success or classify the failure via `applyAiErrorClassification`
     - _Requirements: 1.2, 1.4, 1.5, 4.1, 4.3, 6.1, 6.4_
@@ -114,8 +114,8 @@ they stay independent of each other and of the example-based unit tests in
 - [ ] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Implement copying a suggested score into the manual mark input
-  - [ ] 7.1 Implement `copyAiScoreToMark`
+- [x] 7. Implement copying a suggested score into the manual mark input
+  - [x] 7.1 Implement `copyAiScoreToMark`
     - Read `aiSuggestions()[questionId]`; if present, write its `score` into `editScores` via the existing `Record` update pattern; no HTTP call
     - _Requirements: 5.2, 5.3, 5.4, 5.5_
 
@@ -127,8 +127,8 @@ they stay independent of each other and of the example-based unit tests in
     - **Property 10: AI State Transitions Never Affect Manual Marking Inputs**
     - **Validates: Requirements 3.2, 4.2**
 
-- [ ] 8. Add the Suggestion_Panel template and styles
-  - [ ] 8.1 Add the `Suggestion_Panel` block to `results.component.ts`
+- [x] 8. Add the Suggestion_Panel template and styles
+  - [x] 8.1 Add the `Suggestion_Panel` block to `results.component.ts`
     - Add the `.ai-suggestion-panel` `<section>` as a sibling of `.mark-row` (never nested inside it), guarded by `isAiEligibleQuestion(...)`, for both top-level questions and `GROUP` sub-questions
     - Render, per state: request control (disabled while loading), loading indicator, access-denied indication, generic/ineligible error indication, or suggestion content (score/maxScore, rationale, generated-at, "Use this score" button, "Regenerate" button)
     - Add the `.ai-suggestion-panel`/`.ai-badge`/`.ai-score`/`.ai-rationale`/`.ai-meta`/`.ai-loading`/`.ai-error`/`.ai-access-denied`/`.ai-request-row` styles to the component's inline `styles` array
