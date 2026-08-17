@@ -40,5 +40,5 @@ ai:
     api-key: ${GROQ_API_KEY:}
     base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
     model: ${GROQ_MODEL:openai/gpt-oss-120b}
-    temperature: ${GROQ_TEMPERATURE:0.9}
-    timeout-seconds: ${GROQ_TIMEOUT_SECONDS:60}
+    temperature: ${GROQ_TEMPERATURE:0.7}
+    timeout-seconds: ${GROQ_TIMEOUT_SECONDS:30}
