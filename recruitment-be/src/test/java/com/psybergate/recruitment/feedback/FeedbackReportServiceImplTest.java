@@ -1,6 +1,6 @@
 package com.psybergate.recruitment.feedback;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.psybergate.recruitment.ai.AiResponseException;
 import com.psybergate.recruitment.ai.AiService;
 import com.psybergate.recruitment.domain.Question;
@@ -134,7 +134,6 @@ class FeedbackReportServiceImplTest {
         when(submissionService.getResult(submissionId)).thenReturn(result);
         when(questionRepository.findAllById(any())).thenReturn(List.of());
         when(aiService.promptForJson(anyString())).thenReturn("not json {{{");
-        when(reportRepository.findBySubmissionId(submissionId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.generate(submissionId, requestedBy))
                 .isInstanceOf(AiResponseException.class)
