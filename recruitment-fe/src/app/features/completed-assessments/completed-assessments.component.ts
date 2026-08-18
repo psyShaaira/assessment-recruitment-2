@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { DatePipe } from '@angular/common';
 import { MarkingService } from '../../core/marking/marking.service';
 import { SubmissionSummary } from '../../core/marking/marking.model';
+import { FeedbackService } from '../../core/feedback/feedback.service';
 
 @Component({
   selector: 'app-completed-assessments',
@@ -38,13 +39,14 @@ import { SubmissionSummary } from '../../core/marking/marking.model';
                 <th class="align-right">%</th>
                 <th>Result</th>
                 <th>Submitted</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               @if (loading()) {
-                <tr><td colspan="6" class="table-empty">Loading…</td></tr>
+                <tr><td colspan="7" class="table-empty">Loading…</td></tr>
               } @else if (filtered().length === 0) {
-                <tr><td colspan="6" class="table-empty">No completed assessments match your filters.</td></tr>
+                <tr><td colspan="7" class="table-empty">No completed assessments match your filters.</td></tr>
               } @else {
                 @for (s of filtered(); track s.submissionId) {
                   <tr class="clickable" (click)="viewResult(s)">
@@ -73,6 +75,22 @@ import { SubmissionSummary } from '../../core/marking/marking.model';
                       }
                     </td>
                     <td class="text-dim">{{ s.submittedAt | date:'MMM d, y' }}</td>
+                    <td class="actions-cell" (click)="$event.stopPropagation()">
+                      @if (s.submissionId && s.markedCount >= s.totalAnswers) {
+                        <button
+                          class="action-btn"
+                          [disabled]="emailSending() === s.submissionId"
+                          (click)="sendFeedbackEmail(s)">
+                          @if (emailSending() === s.submissionId) {
+                            Sending…
+                          } @else if (emailSent().has(s.submissionId!)) {
+                            Sent
+                          } @else {
+                            Send Feedback
+                          }
+                        </button>
+                      }
+                    </td>
                   </tr>
                 }
               }
@@ -183,16 +201,42 @@ import { SubmissionSummary } from '../../core/marking/marking.model';
     .badge-pass { background: var(--success-subtle); color: var(--success); }
     .badge-fail { background: var(--danger-subtle, rgba(239,68,68,.08)); color: var(--danger, #ef4444); }
     .badge-marking { background: var(--warning-subtle); color: var(--warning); }
+
+    .actions-cell { white-space: nowrap; }
+
+    .action-btn {
+      padding: 5px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-2);
+      font-size: 12px;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: all 100ms;
+    }
+    .action-btn:hover:not(:disabled) {
+      background: var(--accent-subtle);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .action-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   `],
 })
 export class CompletedAssessmentsComponent implements OnInit {
   private readonly markingService = inject(MarkingService);
+  private readonly feedbackService = inject(FeedbackService);
   private readonly router = inject(Router);
 
   readonly submissions = signal<SubmissionSummary[]>([]);
   readonly loading = signal(true);
   readonly assessmentFilter = signal('');
   readonly passFilter = signal<'all' | 'pass'>('all');
+  readonly emailSending = signal<string | null>(null);
+  readonly emailSent = signal<Set<string>>(new Set());
 
   readonly assessments = computed(() =>
     [...new Set(this.submissions().map(s => s.assessmentTitle))].sort(),
@@ -226,5 +270,19 @@ export class CompletedAssessmentsComponent implements OnInit {
     if (s.submissionId) {
       this.router.navigate(['/results'], { queryParams: { submission: s.submissionId } });
     }
+  }
+
+  sendFeedbackEmail(s: SubmissionSummary): void {
+    if (!s.submissionId || this.emailSending()) return;
+    this.emailSending.set(s.submissionId);
+    this.feedbackService.sendFeedbackEmail(s.submissionId).subscribe({
+      next: () => {
+        this.emailSent.update(set => new Set(set).add(s.submissionId!));
+        this.emailSending.set(null);
+      },
+      error: () => {
+        this.emailSending.set(null);
+      },
+    });
   }
 }

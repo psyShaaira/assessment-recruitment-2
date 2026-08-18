@@ -1,7 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { FeedbackReportResponse } from './feedback.model';
+import { FeedbackEmailSendResponse, FeedbackReportResponse } from './feedback.model';
 
 @Injectable({ providedIn: 'root' })
 export class FeedbackService {
@@ -22,6 +22,16 @@ export class FeedbackService {
     }
     return this.http.post<FeedbackReportResponse>(
       `/api/submissions/${submissionId}/feedback-report`,
+      {},
+    );
+  }
+
+  sendFeedbackEmail(submissionId: string): Observable<FeedbackEmailSendResponse> {
+    if (!submissionId) {
+      throw new Error('submissionId must not be empty');
+    }
+    return this.http.post<FeedbackEmailSendResponse>(
+      `/api/submissions/${submissionId}/feedback-report/email`,
       {},
     );
   }
