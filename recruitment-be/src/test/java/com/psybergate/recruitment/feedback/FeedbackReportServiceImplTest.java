@@ -1,5 +1,6 @@
 package com.psybergate.recruitment.feedback;
 
+import tools.jackson.databind.ObjectMapper;
 import com.psybergate.recruitment.ai.AiResponseException;
 import com.psybergate.recruitment.ai.AiService;
 import com.psybergate.recruitment.domain.Question;
