@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -155,7 +156,38 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
             throw new AiGenerationValidationException(
                     "MCQ must have exactly 1 correct option, got " + correctCount);
         }
+        checkForNearDuplicateOptions(options);
         return options;
+    }
+
+    // ATR2-10 spike found near-duplicate distractors (options differing only by a trailing
+    // clause) in live Groq output — confusable to a candidate even though structurally valid.
+    // ponytail: word-prefix heuristic, not real text similarity — flags "X" vs "X, sort of" but
+    // not paraphrases. Upgrade to an edit-distance/embedding check if false negatives show up
+    // in the golden-dataset suite (ATR2-28).
+    private void checkForNearDuplicateOptions(List<QuestionOptionRequest> options) {
+        List<List<String>> words = options.stream()
+                .map(o -> Arrays.asList(normalizeOptionText(o).split(" ")))
+                .toList();
+        for (int i = 0; i < words.size(); i++) {
+            for (int j = i + 1; j < words.size(); j++) {
+                if (isDuplicateOrWordPrefix(words.get(i), words.get(j))) {
+                    throw new AiGenerationValidationException(
+                            "MCQ options are too similar to distinguish: \""
+                                    + options.get(i).text() + "\" vs \"" + options.get(j).text() + "\"");
+                }
+            }
+        }
+    }
+
+    private static boolean isDuplicateOrWordPrefix(List<String> a, List<String> b) {
+        List<String> shorter = a.size() <= b.size() ? a : b;
+        List<String> longer = a.size() <= b.size() ? b : a;
+        return !shorter.isEmpty() && longer.subList(0, shorter.size()).equals(shorter);
+    }
+
+    private static String normalizeOptionText(QuestionOptionRequest option) {
+        return option.text().toLowerCase().replaceAll("[^a-z0-9\\s]", "").replaceAll("\\s+", " ").trim();
     }
 
     private String parseAndValidateLanguageHint(JsonNode node) {

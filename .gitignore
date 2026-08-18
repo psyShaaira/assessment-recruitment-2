@@ -5,6 +5,12 @@
 .DS_Store
 Thumbs.db
 
+# JetBrains IDE project files
+.idea/
+
+# VS Code
+.vscode/
+
 # Playwright MCP session artifacts
 .playwright-mcp/
 

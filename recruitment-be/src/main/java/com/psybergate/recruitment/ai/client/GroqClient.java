@@ -16,6 +16,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 import java.net.SocketTimeoutException;
 import java.time.Duration;
@@ -129,6 +130,11 @@ public class GroqClient implements AiClient {
             }
             log.error("AI request failed — type: {}, cause: {}, elapsed: {}ms",
                     mapped.getClass().getSimpleName(), ex.getClass().getSimpleName(), elapsed);
+            throw mapped;
+        } catch (RestClientException ex) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            AiResponseException mapped = new AiResponseException("The AI provider returned a response that could not be parsed");
+            log.error("AI request failed — type: {}, elapsed: {}ms", mapped.getClass().getSimpleName(), elapsed);
             throw mapped;
         }
     }

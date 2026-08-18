@@ -1,0 +1,48 @@
+name: Golden Dataset — Question Generation Quality
+
+# ATR2-28: runs the curated golden-dataset suite against the real Groq API on a schedule,
+# not on every push/PR — avoids burning API quota and PR-blocking flakiness on model variance.
+on:
+  schedule:
+    - cron: '0 4 * * 1' # Mondays 04:00 UTC
+  workflow_dispatch: {} # allow an ad hoc run from the Actions tab
+
+jobs:
+  golden-dataset:
+    name: Question Generation — Golden Dataset
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: recruitment-be
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('recruitment-be/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: Run golden-dataset suite
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: ./mvnw test -Dgroups=golden -Dtest.excludedGroups= -Dtest=QuestionGenerationGoldenDatasetTest
+
+      - name: Upload surefire report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-dataset-surefire-report
+          path: recruitment-be/target/surefire-reports/
