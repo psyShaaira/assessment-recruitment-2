@@ -345,31 +345,27 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                 </div>
               </div>
 
-              <!-- Feedback Report Section -->
+              <!-- AI Feedback Report Section -->
               @if (result()!.markingStatus === 'FULLY_MARKED') {
                 <section class="feedback-section" [attr.aria-busy]="feedbackLoading() !== null">
-                  @if (feedbackLoading()) {
-                    <div class="feedback-loading">
-                      <span class="loading-dot"></span>
-                      {{ feedbackLoading() === 'generating' ? 'Generating feedback report…' : 'Loading feedback report…' }}
-                    </div>
-                  } @else if (feedbackError()) {
-                    <div class="feedback-error">
-                      <span>{{ feedbackError() }}</span>
-                      <button class="save-btn" (click)="retryFeedback()">Retry</button>
-                    </div>
-                  } @else if (feedbackReport()) {
-                    <!-- Report content -->
+                  @if (!feedbackExpanded()) {
+                    <button class="btn-ai-feedback" (click)="toggleFeedbackReport()">
+                      <span class="ai-icon">✦</span>
+                      <span>AI Feedback Report</span>
+                      <span class="ai-badge">AI Generated</span>
+                    </button>
+                  } @else {
                     <div class="feedback-header">
-                      <span class="feedback-title">Feedback Report</span>
-                      @if (feedbackReport()!.aiGenerated) {
-                        <span class="ai-badge">AI Generated</span>
+                      <span class="feedback-title">AI Feedback Report</span>
+                      <span class="ai-badge">AI Generated</span>
+                      <button class="save-btn secondary" (click)="feedbackExpanded.set(false)">Hide</button>
+                      @if (feedbackReport()) {
+                        <button class="save-btn secondary regenerate-btn"
+                                (click)="regenerateReport()"
+                                [disabled]="regenerating()">
+                          {{ regenerating() ? 'Regenerating…' : 'Regenerate' }}
+                        </button>
                       }
-                      <button class="save-btn secondary regenerate-btn"
-                              (click)="regenerateReport()"
-                              [disabled]="regenerating()">
-                        {{ regenerating() ? 'Regenerating…' : 'Regenerate' }}
-                      </button>
                     </div>
                     @if (regenerateError()) {
                       <div class="feedback-inline-error">
@@ -377,33 +373,45 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                         <button class="dismiss-btn" (click)="regenerateError.set(null)">✕</button>
                       </div>
                     }
-                    <p class="feedback-summary">{{ feedbackReport()!.content.overallSummary }}</p>
-                    @if (feedbackReport()!.content.topics.length > 0) {
-                      <div class="feedback-topics">
-                        @for (topic of feedbackReport()!.content.topics; track topic.topic) {
-                          <div class="topic-card">
-                            <h4 class="topic-name">{{ topic.topic }}</h4>
-                            @if (topic.strengths) {
-                              <div class="topic-field"><span class="topic-label">Strengths:</span> {{ topic.strengths }}</div>
-                            }
-                            @if (topic.weaknesses) {
-                              <div class="topic-field"><span class="topic-label">Weaknesses:</span> {{ topic.weaknesses }}</div>
-                            }
-                          </div>
-                        }
+                    @if (feedbackLoading()) {
+                      <div class="feedback-loading">
+                        <span class="loading-dot"></span>
+                        {{ feedbackLoading() === 'generating' ? 'AI is generating feedback report…' : 'Loading feedback report…' }}
                       </div>
-                    }
-                    @if (feedbackReport()!.content.nextSteps.length > 0) {
-                      <div class="feedback-next-steps">
-                        <h4 class="next-steps-heading">Next Steps</h4>
-                        <ol class="next-steps-list">
-                          @for (step of feedbackReport()!.content.nextSteps; track step) {
-                            <li>{{ step }}</li>
+                    } @else if (feedbackError()) {
+                      <div class="feedback-error">
+                        <span>{{ feedbackError() }}</span>
+                        <button class="save-btn" (click)="retryFeedback()">Retry</button>
+                      </div>
+                    } @else if (feedbackReport()) {
+                      <p class="feedback-summary">{{ feedbackReport()!.content.overallSummary }}</p>
+                      @if (feedbackReport()!.content.topics.length > 0) {
+                        <div class="feedback-topics">
+                          @for (topic of feedbackReport()!.content.topics; track topic.topic) {
+                            <div class="topic-card">
+                              <h4 class="topic-name">{{ topic.topic }}</h4>
+                              @if (topic.strengths) {
+                                <div class="topic-field"><span class="topic-label">Strengths:</span> {{ topic.strengths }}</div>
+                              }
+                              @if (topic.weaknesses) {
+                                <div class="topic-field"><span class="topic-label">Weaknesses:</span> {{ topic.weaknesses }}</div>
+                              }
+                            </div>
                           }
-                        </ol>
-                      </div>
+                        </div>
+                      }
+                      @if (feedbackReport()!.content.nextSteps.length > 0) {
+                        <div class="feedback-next-steps">
+                          <h4 class="next-steps-heading">Next Steps</h4>
+                          <ol class="next-steps-list">
+                            @for (step of feedbackReport()!.content.nextSteps; track step) {
+                              <li>{{ step }}</li>
+                            }
+                          </ol>
+                        </div>
+                      }
+                      <div class="feedback-meta">Generated: {{ formatDateTime(feedbackReport()!.generatedAt) }}</div>
                     }
-                    <div class="feedback-meta">Generated: {{ formatDateTime(feedbackReport()!.generatedAt) }}</div>
                   }
                 </section>
               }
@@ -995,6 +1003,28 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
       -webkit-backdrop-filter: var(--glass-blur);
     }
 
+    .btn-ai-feedback {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg-elevated);
+      border: 1px dashed var(--accent);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px; font-weight: 500;
+      color: var(--accent);
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn-ai-feedback:hover {
+      background: var(--accent-subtle);
+      border-style: solid;
+    }
+
+    .btn-ai-feedback .ai-icon {
+      font-size: 16px;
+    }
+
     .feedback-loading {
       display: flex; align-items: center; gap: 10px;
       font-size: 13px; color: var(--text-2);
@@ -1178,6 +1208,7 @@ export class ResultsComponent implements OnInit {
   readonly feedbackReport = signal<FeedbackReportResponse | null>(null);
   readonly feedbackLoading = signal<'fetching' | 'generating' | null>(null);
   readonly feedbackError = signal<string | null>(null);
+  readonly feedbackExpanded = signal(false);
   readonly regenerating = signal(false);
   readonly regenerateError = signal<string | null>(null);
   private feedbackSub?: Subscription;
@@ -1305,6 +1336,7 @@ export class ResultsComponent implements OnInit {
     this.feedbackReport.set(null);
     this.feedbackLoading.set(null);
     this.feedbackError.set(null);
+    this.feedbackExpanded.set(false);
     this.regenerating.set(false);
     this.regenerateError.set(null);
     this.aiGeneration++;
@@ -1321,9 +1353,6 @@ export class ResultsComponent implements OnInit {
         next: r => {
           this.result.set(r);
           this.loadingResult.set(false);
-          if (r.markingStatus === 'FULLY_MARKED') {
-            this.loadFeedbackReport(submissionId);
-          }
           this.loadAiSuggestions(submissionId);
         },
         error: () => this.loadingResult.set(false),
@@ -1497,6 +1526,17 @@ export class ResultsComponent implements OnInit {
           }
         },
       });
+  }
+
+  toggleFeedbackReport(): void {
+    this.feedbackExpanded.set(true);
+    // Only fetch if we don't already have it loaded
+    if (!this.feedbackReport() && !this.feedbackLoading()) {
+      const submissionId = this.selectedSummary()?.submissionId;
+      if (submissionId) {
+        this.loadFeedbackReport(submissionId);
+      }
+    }
   }
 
   retryFeedback(): void {
