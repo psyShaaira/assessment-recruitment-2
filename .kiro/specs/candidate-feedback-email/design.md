@@ -151,10 +151,17 @@ Responsibilities, in order, per Requirement 2/3/6:
 2. If `markingStatus != "FULLY_MARKED"`, throw `ResponseStatusException(409, ...)` (Req 2.3). No log row is written — the method returns before any log-insert code runs.
 3. Look up `SubmissionFeedbackReport` via `submissionFeedbackReportRepository.findBySubmissionId(submissionId)`. If absent, throw `ResponseStatusException(404, ...)` (Req 2.4). No log row written.
 4. Resolve the candidate: load `CandidateSubmission` (already implicitly validated to exist by step 1, but the service loads it directly to reach `candidateId`) then `Candidate` by ID for name + email (Req 2.5).
-5. Parse the report's stored JSON `content` into `FeedbackReportContent` (reusing the existing `ObjectMapper` + record, same as `FeedbackReportServiceImpl.parseContent`) and render a plain-text body containing `overallSummary`, each topic's `topic`/`strengths`/`weaknesses`, and `nextSteps[]` (Req 2.6).
-6. Call `emailService.sendFeedbackReport(candidate, body)` (Req 2.7).
-   - **On success**: build a `FeedbackEmailSendLog` with `status=SENT`, `sentBy`, `sentAt=Instant.now()` (via `@CreationTimestamp`), save it, and return a `FeedbackEmailSendResponse` (Req 2.8, 2.11).
-   - **On exception**: catch it, build a `FeedbackEmailSendLog` with `status=FAILED`, a non-blank `failureReason` derived from the exception message (falling back to a generic message if blank/null), save it, then rethrow as `ResponseStatusException(502, ...)` (Req 2.9). Because the catch block only performs one `save()` against the new log table and touches nothing else, Req 2.10/6.1/6.2 (isolation) hold structurally — there is no code path that could mutate `CandidateSubmission`, `AnswerScore`, or `SubmissionFeedbackReport` after the report was read.
+5. Parse the report's stored JSON `content` into `FeedbackReportContent` (reusing the existing `ObjectMapper` + record, same as `FeedbackReportServiceImpl.parseContent`) and render a plain-text body (Req 2.6) by:
+   - Computing `Strong_Topic` and `Weak_Topic` lists by filtering `topics[]` for entries whose `strengths`/`weaknesses` field, respectively, is non-null and non-empty after trimming (per the glossary definitions).
+   - Building the greeting line "Hi `<firstName>`," (Req 2.7), followed by the fixed intro line "Here is your feedback on your recent assessment:" (Req 2.8), followed by the score sentence stating `round(totalScore / maxScore * 100)` as a whole-number percentage (Req 2.9).
+   - Joining topic-name lists with the shared `joinWithAnd(List<String>)` helper (Req 2.10): comma-separated, with "and" (no preceding comma) before the last item when there are two or more, and no separator at all for a single item.
+   - Conditionally appending a strengths sentence naming every `Strong_Topic` (joined via `joinWithAnd`) only if the `Strong_Topic` list is non-empty (Req 2.11, 2.12), and conditionally appending a weaknesses sentence naming every `Weak_Topic` the same way only if that list is non-empty (Req 2.13, 2.14) — a topic that is both a `Strong_Topic` and a `Weak_Topic` is named in both sentences because the two lists are computed independently (Req 2.15).
+   - Appending the fixed transition line (Req 2.16), then the full `nextSteps[]` rendered verbatim as bullet points (Req 2.17).
+   - Appending the encouraging sign-off sentence immediately before the "The Psybergate Recruitment Team" signature (Req 2.18).
+   - The method only ever emits these named elements in this order, in this set — there is no separate narrative-paragraph step anywhere in the algorithm, satisfying Req 2.19 by construction.
+6. Call `emailService.sendFeedbackReport(candidate, body)` (Req 2.20).
+   - **On success**: build a `FeedbackEmailSendLog` with `status=SENT`, `sentBy`, `sentAt=Instant.now()` (via `@CreationTimestamp`), save it, and return a `FeedbackEmailSendResponse` (Req 2.21, 2.24).
+   - **On exception**: catch it, build a `FeedbackEmailSendLog` with `status=FAILED`, a non-blank `failureReason` derived from the exception message (falling back to a generic message if blank/null), save it, then rethrow as `ResponseStatusException(502, ...)` (Req 2.22). Because the catch block only performs one `save()` against the new log table and touches nothing else, Req 2.23/6.1/6.2 (isolation) hold structurally — there is no code path that could mutate `CandidateSubmission`, `AnswerScore`, or `SubmissionFeedbackReport` after the report was read.
 
 Resends (Requirement 3) require no special-case code: every POST re-runs this exact sequence from scratch, so a second call after a `FAILED` row (or a `SENT` row) is evaluated identically, and each call inserts its own new row without ever touching a prior one (Req 3.1–3.3). No retry counter or rate limit is introduced (Req 6.3).
 
@@ -185,26 +192,42 @@ Rendering lives in `FeedbackEmailServiceImpl` as a private helper, e.g.:
 ```
 Hi <firstName>,
 
-Here is your feedback for <assessment context not required per requirements — omit unless needed>:
+Here is your feedback on your recent assessment:
 
-<overallSummary>
+You scored <percentage>% overall.
 
-<topic 1>
-Strengths: <strengths>
-Weaknesses: <weaknesses>
+You demonstrated strong performance in <Strong_Topic 1>, <Strong_Topic 2>, and <Strong_Topic 3>.
 
-<topic 2>
-...
+There is room for improvement in <Weak_Topic 1> and <Weak_Topic 2>.
 
-Next steps:
+Here are some next steps to help you continue improving:
 - <nextStep 1>
 - <nextStep 2>
 ...
 
+<encouraging sign-off sentence>
+
 The Psybergate Recruitment Team
 ```
 
-This mirrors the greeting/sign-off convention already used by every `EmailServiceImpl` body-builder method.
+`<percentage>` is a whole number computed as `round(totalScore / maxScore * 100)` from the `ResultSummaryResponse` (Req 2.9). The strengths sentence is included only when at least one `Strong_Topic` exists (a topic whose `strengths` field is non-null and non-empty after trimming) and names every `Strong_Topic`; it is omitted entirely otherwise (Req 2.11, 2.12). The weaknesses sentence follows the identical rule for `Weak_Topic` (Req 2.13, 2.14). A topic that qualifies as both a `Strong_Topic` and a `Weak_Topic` appears, by name, in both sentences (Req 2.15) — there is no deduplication or exclusivity between the two lists. `nextSteps[]` is rendered verbatim as bullets, preceded by the fixed transition line (Req 2.16, 2.17). The sign-off sentence is a fixed or lightly-varied encouraging line placed immediately before the signature (Req 2.18). The body consists of exactly these named elements in this order — greeting, intro line, score sentence, strengths sentence (if present), weaknesses sentence (if present), transition line, next-steps bullets, sign-off, signature — with no separate narrative paragraph synthesized from `overallSummary` or anything else (Req 2.19). This replaces the earlier draft of this design, which called for a single synthesized narrative paragraph derived from `overallSummary` and the topics' strengths/weaknesses; that concept has been removed entirely in favor of the explicit strengths/weaknesses sentences described above.
+
+Topic-name lists (the `Strong_Topic` names and the `Weak_Topic` names) are both joined using a shared helper, since the join rule is a general formatting requirement rather than something specific to either sentence (Req 2.10):
+
+```java
+private String joinWithAnd(List<String> items) {
+    if (items.size() <= 1) {
+        return items.isEmpty() ? "" : items.get(0);
+    }
+    if (items.size() == 2) {
+        return items.get(0) + " and " + items.get(1);
+    }
+    String allButLast = String.join(", ", items.subList(0, items.size() - 1));
+    return allButLast + ", and " + items.get(items.size() - 1);
+}
+```
+
+This mirrors the greeting/sign-off convention already used by every `EmailServiceImpl` body-builder method, while replacing the old raw per-topic dump with the explicit, structurally-pinned format described by the revised Requirement 2.
 
 ## Data Models
 
@@ -317,7 +340,7 @@ Notes on this schema, tying directly back to Requirement 1:
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-The prework above classified most acceptance criteria as PROPERTY-suitable (this feature is almost entirely pure decision logic + rendering + append-only logging over mocked/in-memory collaborators, which is ideal for PBT), with a small number of EXAMPLE/EDGE_CASE criteria (access control, the CHECK-constraint combinations, the empty-history GET case) better served by targeted unit/integration tests. The reflection step above consolidated 16 initially-classified criteria into 10 non-redundant properties, three of which (existence/marking-status/report-existence gates) are deliberately phrased to be history-independent so they cover both the fresh-send (Requirement 2) and resend (Requirement 3) cases with a single statement.
+The prework above classified most acceptance criteria as PROPERTY-suitable (this feature is almost entirely pure decision logic + rendering + append-only logging over mocked/in-memory collaborators, which is ideal for PBT), with a small number of EXAMPLE/EDGE_CASE criteria (access control, the CHECK-constraint combinations, the empty-history GET case) better served by targeted unit/integration tests. The reflection step above consolidated the classified criteria into 10 non-redundant properties, three of which (existence/marking-status/report-existence gates) are deliberately phrased to be history-independent so they cover both the fresh-send (Requirement 2) and resend (Requirement 3) cases with a single statement; Property 4 alone now consolidates the thirteen granular rendering criteria (2.7–2.19) introduced by the revised Requirement 2 — greeting, intro line, score sentence, the joiner rule, the conditional strengths/weaknesses sentences (including the both-Strong_Topic-and-Weak_Topic overlap case), the transition line, next-steps bullets, the sign-off, and the closed-world "no extra narrative paragraph" constraint — into a single structural-presence property.
 
 ### Property 1: Unknown submission is always rejected with 404, regardless of history
 
@@ -337,29 +360,39 @@ The prework above classified most acceptance criteria as PROPERTY-suitable (this
 
 **Validates: Requirements 2.4, 3.1**
 
-### Property 4: Rendered email body contains the full report content
+### Property 4: Rendered email body has the required structure, conditional strengths/weaknesses sentences, and preserves next steps verbatim
 
-*For any* `SubmissionFeedbackReport` content (any `overallSummary` string, any list of 0..N topics each with a topic/strengths/weaknesses string, and any list of 0..N `nextSteps` strings, including strings containing whitespace-only or special characters), the plain-text body rendered for that report contains the `overallSummary` text, and for every topic contains its topic name, strengths, and weaknesses, and for every next step contains that step's text.
+*For any* `SubmissionFeedbackReport` content (any candidate first name; any list of 0..N topics, each with a topic name and independently-random `strengths`/`weaknesses` fields that may be null, empty, whitespace-only, or non-empty text — including topics where both fields are non-empty and topics where both are empty/null; and any list of 0..N `nextSteps` strings, including strings containing whitespace-only or special characters) and any `ResultSummaryResponse` with a non-negative `totalScore <= maxScore` (`maxScore > 0`), the plain-text body rendered for that report and result:
+- opens with a greeting line containing the candidate's first name, formatted "Hi `<firstName>`,";
+- includes the fixed introductory line immediately after the greeting;
+- includes a score sentence containing the score expressed as a whole-number percentage equal to `round(totalScore / maxScore * 100)`;
+- includes a strengths sentence *if and only if* at least one topic is a `Strong_Topic` (non-null, non-empty-after-trim `strengths`), and when included, that sentence names exactly the set of `Strong_Topic` names, joined per the comma/"and" rule (Req 2.10), and is absent (not present as an empty or degenerate line) when no `Strong_Topic` exists;
+- includes a weaknesses sentence under the identical iff-rule for `Weak_Topic`, naming exactly the set of `Weak_Topic` names joined the same way, absent when no `Weak_Topic` exists;
+- for any topic that is both a `Strong_Topic` and a `Weak_Topic`, that topic's name appears in both the strengths sentence and the weaknesses sentence;
+- includes the fixed transition line immediately before the next-steps bullets;
+- contains, for every next step, that step's text verbatim, rendered as a bullet, in the same order as `nextSteps[]`;
+- includes a non-empty sign-off sentence immediately before the signature line; and
+- contains no additional narrative paragraph or text beyond the greeting, intro line, score sentence, (conditional) strengths sentence, (conditional) weaknesses sentence, transition line, next-steps bullets, sign-off sentence, and signature — i.e. the body's non-blank lines are accounted for entirely by this fixed element list.
 
-**Validates: Requirements 2.6**
+**Validates: Requirements 2.7, 2.8, 2.9, 2.10, 2.11, 2.12, 2.13, 2.14, 2.15, 2.16, 2.17, 2.18, 2.19**
 
 ### Property 5: Email is always addressed to the submission's actual candidate
 
 *For any* `FULLY_MARKED` submission with an existing report, when the send succeeds or fails, `EmailService.sendFeedbackReport` is invoked with the `Candidate` object corresponding to that submission's `candidateId` — never a different candidate's record — regardless of how many other candidates/submissions exist in the system.
 
-**Validates: Requirements 2.5, 2.7**
+**Validates: Requirements 2.5, 2.20**
 
 ### Property 6: Send outcome is faithfully recorded and reported
 
 *For any* `FULLY_MARKED` submission with an existing report, and *for any* behavior of the `EmailService` call (returns normally, or throws an exception with any message including blank/null), exactly one new `feedback_email_send_log` row is inserted such that: if the call succeeded, the row has `status = SENT`, `sentBy` equal to the acting user's ID, and a non-null `sentAt`, and the endpoint returns HTTP 200 with a `FeedbackEmailSendResponse` whose `submissionId`/`status`/`sentAt` match that row; if the call threw, the row has `status = FAILED` and a non-blank `failureReason`, and the endpoint returns HTTP 502.
 
-**Validates: Requirements 1.3, 2.1, 2.8, 2.9, 2.11**
+**Validates: Requirements 1.3, 2.1, 2.21, 2.22, 2.24**
 
 ### Property 7: Failed sends are fully isolated to the send-log table
 
 *For any* submission and any send attempt where `EmailService` throws, the `CandidateSubmission` row, all `AnswerScore` rows, and the `SubmissionFeedbackReport` row associated with that submission are byte-for-byte identical immediately before and immediately after the attempt — the only persisted change from the attempt is the insertion of one new `feedback_email_send_log` row carrying `status = FAILED` and the `failureReason`.
 
-**Validates: Requirements 2.10, 6.1, 6.2**
+**Validates: Requirements 2.23, 6.1, 6.2**
 
 ### Property 8: Resends are append-only — prior send-log rows are never mutated
 
@@ -408,7 +441,7 @@ Each property from the design maps to exactly one `@Property`-annotated jqwik te
 | 1. Unknown submission → 404 | `FeedbackEmailServiceTest` | random UUID not present in mocked repo; random-length list of prior log rows |
 | 2. Not-fully-marked → 409 | `FeedbackEmailServiceTest` | random `ResultSummaryResponse` with `markingStatus` != `FULLY_MARKED`; random prior-history list |
 | 3. Missing report → 404 | `FeedbackEmailServiceTest` | `FULLY_MARKED` result + report repo mocked to return empty; random prior-history list |
-| 4. Rendered body completeness | `FeedbackEmailServiceTest` (pure function test, no mocks needed) | random `FeedbackReportContent` (jqwik `Arbitraries.strings()` for text fields, `Arbitraries.of(...).list()` for topics/nextSteps of size 0–10, including strings with newlines/unicode) |
+| 4. Rendered body structure (greeting/intro/percentage/conditional strengths+weaknesses sentences/transition/next-steps verbatim/sign-off/no extra narrative) | `FeedbackEmailServiceTest` (pure function test, no mocks needed) | random candidate first name + random `FeedbackReportContent` (jqwik `Arbitraries.strings()` for topic names, independently-random nullable/whitespace-only/non-empty `strengths`/`weaknesses` per topic, `Arbitraries.of(...).list()` for topics/nextSteps of size 0–10, including strings with newlines/unicode) + random `ResultSummaryResponse` with `0 <= totalScore <= maxScore` and `maxScore > 0`; assertions check the greeting/intro/score/transition/next-steps/sign-off structurally, check the strengths/weaknesses sentences' presence-iff-nonempty and exact joined membership (including the both-Strong_Topic-and-Weak_Topic overlap case), and check no other non-blank line exists in the body |
 | 5. Correct addressing | `FeedbackEmailServiceTest` | random pool of `Candidate` records + random submission pointing at one of them |
 | 6. Outcome faithfully recorded | `FeedbackEmailServiceTest` | random boolean (throw or not) + random exception message (including blank/null) fed to the mocked `EmailService` |
 | 7. Failed-send isolation | `FeedbackEmailServiceTest` | random snapshot of `CandidateSubmission`/`AnswerScore`/`SubmissionFeedbackReport` mock state, captured before/after a forced-failure send |

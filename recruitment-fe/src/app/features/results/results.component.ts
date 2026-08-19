@@ -9,6 +9,8 @@ import { ReminderSendLogDto } from '../../core/reminder/reminder.model';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FeedbackService } from '../../core/feedback/feedback.service';
 import { FeedbackReportResponse } from '../../core/feedback/feedback.model';
+import { FeedbackEmailService } from '../../core/feedback-email/feedback-email.service';
+import { FeedbackEmailSendLogEntry } from '../../core/feedback-email/feedback-email.model';
 import { Subscription, timeout } from 'rxjs';
 import { CodeEditorComponent } from '../../shared/code-editor/code-editor.component';
 import { AiMarkingService } from '../../core/ai-marking/ai-marking.service';
@@ -406,6 +408,68 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                     <div class="feedback-meta">Generated: {{ formatDateTime(feedbackReport()!.generatedAt) }}</div>
                   }
                 </section>
+              }
+
+              <!-- Feedback Email Section -->
+              @if (showFeedbackEmailSection()) {
+                <div class="feedback-email-section">
+                  <div class="feedback-email-controls">
+                    @if (!showFeedbackEmailConfirm()) {
+                      <button class="btn-reminder" (click)="showFeedbackEmailConfirm.set(true)" [disabled]="feedbackEmailSending()">
+                        ✉ {{ feedbackEmailSending() ? 'Sending…' : feedbackEmailButtonLabel() }}
+                      </button>
+                    } @else {
+                      <div class="reminder-confirm">
+                        <span class="reminder-confirm-text">Send the feedback report email to this candidate?</span>
+                        <button class="save-btn" (click)="sendFeedbackEmail()" [disabled]="feedbackEmailSending()">
+                          {{ feedbackEmailSending() ? 'Sending…' : 'Confirm' }}
+                        </button>
+                        <button class="save-btn secondary" (click)="showFeedbackEmailConfirm.set(false)" [disabled]="feedbackEmailSending()">Cancel</button>
+                      </div>
+                    }
+                    @if (feedbackEmailSuccess()) {
+                      <span class="reminder-toast">✓ Feedback email sent</span>
+                    }
+                    @if (feedbackEmailError()) {
+                      <div class="feedback-inline-error">
+                        {{ feedbackEmailError() }}
+                        <button class="dismiss-btn" (click)="feedbackEmailError.set(null)">✕</button>
+                      </div>
+                    }
+                  </div>
+                  <div class="audit-section">
+                    <div class="audit-title">Feedback Email History</div>
+                    @if (feedbackEmailHistoryLoading()) {
+                      <div class="feedback-loading">
+                        <span class="loading-dot"></span> Loading send history…
+                      </div>
+                    } @else if (feedbackEmailHistoryError()) {
+                      <div class="feedback-error">
+                        <span>{{ feedbackEmailHistoryError() }}</span>
+                        <button class="save-btn" (click)="retryFeedbackEmailHistory()">Retry</button>
+                      </div>
+                    } @else if (feedbackEmailHistory().length === 0) {
+                      <div class="audit-empty">No feedback emails sent yet</div>
+                    } @else {
+                      @for (entry of feedbackEmailHistory(); track $index) {
+                        <div class="audit-entry">
+                          <span class="audit-action">
+                            <span class="marking-badge" [class.badge-done]="entry.status === 'SENT'" [class.badge-pending]="entry.status === 'FAILED'">
+                              {{ entry.status === 'SENT' ? '✓ Sent' : '✕ Failed' }}
+                            </span>
+                            @if (entry.sentBy) {
+                              <span>by {{ entry.sentBy }}</span>
+                            }
+                          </span>
+                          <span class="audit-meta">{{ formatDateTime(entry.sentAt) }}</span>
+                        </div>
+                        @if (entry.status === 'FAILED' && entry.failureReason) {
+                          <div class="feedback-email-failure-reason">{{ entry.failureReason }}</div>
+                        }
+                      }
+                    }
+                  </div>
+                </div>
               }
 
               <!-- Per-question answers -->
@@ -942,7 +1006,7 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
     }
 
     /* Glass treatment so detail cards read clearly over the backdrop */
-    .detail-header, .answer-card, .flag-section, .audit-section, .reminder-section {
+    .detail-header, .answer-card, .flag-section, .audit-section, .reminder-section, .feedback-email-section {
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
     }
@@ -968,6 +1032,16 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
       margin: 0 0 14px; padding: 12px 14px;
       background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .feedback-email-section {
+      margin: 0 0 14px; padding: 12px 14px;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    }
+    .feedback-email-controls {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+    }
+    .feedback-email-failure-reason {
+      font-size: 11.5px; color: var(--danger); margin: 2px 0 6px 0; padding-left: 2px;
     }
     .btn-reminder {
       background: none; border: 1px solid var(--accent); color: var(--accent);
@@ -1145,6 +1219,7 @@ export class ResultsComponent implements OnInit {
   private readonly reminderSvc = inject(ReminderService);
   private readonly route = inject(ActivatedRoute);
   private readonly feedbackSvc = inject(FeedbackService);
+  private readonly feedbackEmailSvc = inject(FeedbackEmailService);
   private readonly aiMarkingSvc = inject(AiMarkingService);
 
   readonly submissions = signal<SubmissionSummary[]>([]);
@@ -1181,6 +1256,18 @@ export class ResultsComponent implements OnInit {
   readonly regenerating = signal(false);
   readonly regenerateError = signal<string | null>(null);
   private feedbackSub?: Subscription;
+
+  // Feedback-email history state
+  readonly feedbackEmailHistory = signal<FeedbackEmailSendLogEntry[]>([]);
+  readonly feedbackEmailHistoryLoading = signal(false);
+  readonly feedbackEmailHistoryError = signal<string | null>(null);
+
+  // Feedback-email send-action state
+  readonly showFeedbackEmailConfirm = signal(false);
+  readonly feedbackEmailSending = signal(false);
+  readonly feedbackEmailSuccess = signal(false);
+  readonly feedbackEmailError = signal<string | null>(null);
+  private feedbackEmailSub?: Subscription;
 
   readonly editScores = signal<Record<string, number | undefined>>({});
   readonly editFeedback = signal<Record<string, string | undefined>>({});
@@ -1250,6 +1337,21 @@ export class ResultsComponent implements OnInit {
     return list.filter(s => s.status === statusF);
   });
 
+  // Feedback Email Section is only shown once a feedback report has
+  // actually loaded for the selected submission — visibility is the
+  // conjunction of markingStatus and feedbackReport availability, not
+  // markingStatus alone.
+  readonly showFeedbackEmailSection = computed(
+    () => this.result()?.markingStatus === 'FULLY_MARKED' && this.feedbackReport() !== null,
+  );
+
+  // Send/resend button label reflects whether any send attempt has been
+  // made yet — the template overrides this with "Sending…" while a send
+  // request is in flight, regardless of history length.
+  readonly feedbackEmailButtonLabel = computed(() =>
+    this.feedbackEmailHistory().length === 0 ? 'Send Feedback Email' : 'Resend Feedback Email',
+  );
+
   // AI marking suggestion eligibility — applies to top-level questions and,
   // separately, to each GROUP question's subQuestions; never to the GROUP
   // question itself.
@@ -1307,6 +1409,14 @@ export class ResultsComponent implements OnInit {
     this.feedbackError.set(null);
     this.regenerating.set(false);
     this.regenerateError.set(null);
+    this.feedbackEmailSub?.unsubscribe();
+    this.feedbackEmailHistory.set([]);
+    this.feedbackEmailHistoryLoading.set(false);
+    this.feedbackEmailHistoryError.set(null);
+    this.showFeedbackEmailConfirm.set(false);
+    this.feedbackEmailSending.set(false);
+    this.feedbackEmailSuccess.set(false);
+    this.feedbackEmailError.set(null);
     this.aiGeneration++;
     this.aiRequestSeq = {};
     this.aiSuggestions.set({});
@@ -1349,6 +1459,7 @@ export class ResultsComponent implements OnInit {
       next: report => {
         this.feedbackReport.set(report);
         this.feedbackLoading.set(null);
+        this.loadFeedbackEmailHistory(submissionId);
       },
       error: (err: HttpErrorResponse) => {
         if (err.status === 404) {
@@ -1357,6 +1468,7 @@ export class ResultsComponent implements OnInit {
             next: report => {
               if (this.selectedSummary()?.submissionId === submissionId) {
                 this.feedbackReport.set(report);
+                this.loadFeedbackEmailHistory(submissionId);
               }
               this.feedbackLoading.set(null);
             },
@@ -1373,6 +1485,83 @@ export class ResultsComponent implements OnInit {
         }
       },
     });
+  }
+
+  private loadFeedbackEmailHistory(submissionId: string): void {
+    this.feedbackEmailHistoryLoading.set(true);
+    this.feedbackEmailHistoryError.set(null);
+
+    this.feedbackEmailSub = this.feedbackEmailSvc.getSendHistory(submissionId).subscribe({
+      next: history => {
+        // Guard: discard if the user has since switched submissions (Req 4.7)
+        if (this.selectedSummary()?.submissionId === submissionId) {
+          this.feedbackEmailHistory.set(history);
+          this.feedbackEmailHistoryLoading.set(false);
+        }
+      },
+      error: () => {
+        if (this.selectedSummary()?.submissionId === submissionId) {
+          this.feedbackEmailHistoryError.set('Could not load send history. Please try again.');
+          this.feedbackEmailHistoryLoading.set(false);
+        }
+      },
+    });
+  }
+
+  retryFeedbackEmailHistory(): void {
+    const submissionId = this.selectedSummary()?.submissionId;
+    if (!submissionId) return;
+    this.loadFeedbackEmailHistory(submissionId);
+  }
+
+  sendFeedbackEmail(): void {
+    const submissionId = this.selectedSummary()?.submissionId;
+    if (!submissionId) return;
+
+    // Req 7.6: clear prior success/error before the new request begins
+    this.feedbackEmailSuccess.set(false);
+    this.feedbackEmailError.set(null);
+    this.feedbackEmailSending.set(true);
+
+    this.feedbackEmailSvc.sendEmail(submissionId).subscribe({
+      next: response => {
+        this.feedbackEmailSending.set(false);
+        this.showFeedbackEmailConfirm.set(false);
+        this.feedbackEmailSuccess.set(true);
+        // Req 7.1: optimistic update — prepend without a re-fetch/reload.
+        // sentBy is unknown from this response shape; omitted (null) here is
+        // self-correcting on the next natural history refresh (re-selecting
+        // the submission), and satisfies Req 5.4's "omit if null" rule.
+        this.feedbackEmailHistory.update(h => [
+          { sentAt: response.sentAt, status: response.status, sentBy: null, failureReason: null },
+          ...h,
+        ]);
+        setTimeout(() => this.feedbackEmailSuccess.set(false), 3000);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.feedbackEmailSending.set(false);
+        const { message, refetch } = this.classifySendError(err);
+        this.feedbackEmailError.set(message);
+        if (refetch) {
+          this.loadFeedbackEmailHistory(submissionId);
+        }
+      },
+    });
+  }
+
+  /**
+   * Pure classification function (Requirements 7.2–7.4, 8.1): maps any send
+   * failure to a sanitized, non-technical message and a refetch flag. Only a
+   * 502 (email genuinely attempted and failed server-side, recorded as a
+   * FAILED log row) warrants re-fetching history to surface that new row —
+   * 404/409 and network errors never reached a log-write, so there is nothing
+   * new to fetch.
+   */
+  private classifySendError(err: HttpErrorResponse): { message: string; refetch: boolean } {
+    if (err.status === 502) {
+      return { message: 'The feedback email could not be delivered to the candidate.', refetch: true };
+    }
+    return { message: 'The feedback email could not be sent. Please try again.', refetch: false };
   }
 
   private isCurrentAiRequest(questionId: string, generation: number, seq: number): boolean {
