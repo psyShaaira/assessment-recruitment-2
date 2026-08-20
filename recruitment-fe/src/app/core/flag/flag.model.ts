@@ -1,3 +1,5 @@
+export type RiskLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+
 export type FlagStatus = 'FLAGGED' | 'UNDER_REVIEW' | 'ACTION_REQUIRED' | 'RESOLVED' | 'DISMISSED';
 export type FlagReason =
   | 'COPIED_ANSWERS'
@@ -46,4 +48,15 @@ export interface CreateFlagRequest {
 export interface TransitionFlagRequest {
   status: FlagStatus;
   resolutionNotes?: string | null;
+}
+
+export interface RiskAssessmentResponse {
+  submissionId: string;
+  risk: RiskLevel;
+  reasons: FlagReason[];
+  rationale: string;
+  confidence: number;
+  analyzedAt: string;
+  promptVersion: string;
+  flagCreated: boolean;
 }

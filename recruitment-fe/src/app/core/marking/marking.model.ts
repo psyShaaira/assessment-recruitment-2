@@ -1,3 +1,5 @@
+import { RiskLevel } from '../flag/flag.model';
+
 export type SubmissionStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'SUBMITTED' | 'AUTO_SUBMITTED';
 export type MarkingStatus = 'FULLY_MARKED' | 'PENDING_REVIEW';
 export type QuestionType = 'MCQ' | 'TEXT' | 'CODE_SUBMISSION' | 'GROUP';
@@ -18,6 +20,7 @@ export interface SubmissionSummary {
   totalScore: number;
   maxScore: number;
   flagStatus: FlagStatus | null;
+  aiRiskLevel?: RiskLevel | null;
   candidateBlacklisted: boolean;
 }
 
@@ -45,6 +48,7 @@ export interface ResultSummary {
   maxScore: number;
   answeredCount: number;
   markingStatus: MarkingStatus;
+  aiRiskLevel?: RiskLevel | null;
   questions: ResultQuestion[];
 }
 

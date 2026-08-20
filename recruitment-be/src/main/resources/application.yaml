@@ -16,16 +16,15 @@ spring:
     problemdetails:
       enabled: true
   mail:
-    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
-    port: ${SPRING_MAIL_PORT:587}
-    username: ${SPRING_MAIL_USERNAME:}
-    password: ${SPRING_MAIL_PASSWORD:}
-    properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
+    host: localhost
+    port: 1025
+  task:
+    execution:
+      pool:
+        core-size: 2
+        max-size: 4
+        queue-capacity: 50
+      thread-name-prefix: ai-flagging-
 
 jwt:
   secret: ${JWT_SECRET:change-this-in-production-must-be-at-least-32-chars}
@@ -53,3 +52,10 @@ ai:
     model: ${GROQ_MODEL:openai/gpt-oss-120b}
     temperature: ${GROQ_TEMPERATURE:0.7}
     timeout-seconds: ${GROQ_TIMEOUT_SECONDS:30}
+
+flagging:
+  ai-enabled: true
+  high-threshold: 0.8
+  medium-threshold: 0.5
+  similarity-threshold: 0.8
+  timeout-seconds: 30

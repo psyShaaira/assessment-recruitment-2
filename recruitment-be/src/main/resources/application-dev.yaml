@@ -22,3 +22,6 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+
+flagging:
+  ai-enabled: true

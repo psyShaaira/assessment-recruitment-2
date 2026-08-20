@@ -1,6 +1,8 @@
 package com.psybergate.recruitment.flag;
 
 import com.psybergate.recruitment.domain.FlagStatus;
+import com.psybergate.recruitment.flag.ai.AiFlaggingService;
+import com.psybergate.recruitment.flag.ai.dto.RiskAssessmentResponse;
 import com.psybergate.recruitment.flag.domain.FlagReason;
 import com.psybergate.recruitment.flag.dto.*;
 import jakarta.validation.Valid;
@@ -11,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -22,6 +25,7 @@ import java.util.UUID;
 public class SubmissionFlagController {
 
     private final SubmissionFlagService flagService;
+    private final AiFlaggingService aiFlaggingService;
 
     /** 4.1 — Create flag */
     @PostMapping("/api/submissions/{submissionId}/flags")
@@ -71,5 +75,14 @@ public class SubmissionFlagController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
         return ResponseEntity.ok(flagService.getAllFlags(reason, assessmentId, fromDate, toDate));
+    }
+
+    /** 5.1 — AI risk assessment for a submission */
+    @GetMapping("/api/submissions/{submissionId}/risk-assessment")
+    public ResponseEntity<RiskAssessmentResponse> getRiskAssessment(@PathVariable UUID submissionId) {
+        return aiFlaggingService.getRiskAssessment(submissionId)
+                .map(ResponseEntity::ok)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No risk assessment found for submission " + submissionId));
     }
 }

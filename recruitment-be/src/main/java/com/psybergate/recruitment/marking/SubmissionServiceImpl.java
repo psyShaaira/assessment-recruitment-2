@@ -1,6 +1,9 @@
 package com.psybergate.recruitment.marking;
 
 import com.psybergate.recruitment.domain.*;
+import com.psybergate.recruitment.flag.domain.FlaggingRiskAssessment;
+import com.psybergate.recruitment.flag.domain.RiskLevel;
+import com.psybergate.recruitment.flag.repository.FlaggingRiskAssessmentRepository;
 import com.psybergate.recruitment.marking.dto.*;
 import com.psybergate.recruitment.repository.*;
 import com.psybergate.recruitment.repository.SubmissionFlagRepository;
@@ -33,6 +36,7 @@ public class SubmissionServiceImpl implements SubmissionService {
     private final com.psybergate.recruitment.repository.SubmissionFlagRepository submissionFlagRepository;
     private final com.psybergate.recruitment.repository.InvitationRepository invitationRepository;
     private final com.psybergate.recruitment.repository.SubmissionQuestionSnapshotRepository snapshotRepository;
+    private final FlaggingRiskAssessmentRepository flaggingRiskAssessmentRepository;
 
     @Override
     public List<SubmissionSummaryResponse> listSubmissions(UUID assessmentId) {
@@ -295,6 +299,12 @@ public class SubmissionServiceImpl implements SubmissionService {
                 .mapToInt(Question::getMaxScore)
                 .sum();
 
+        // Resolve AI risk level (only MEDIUM/HIGH surfaced)
+        RiskLevel aiRiskLevel = flaggingRiskAssessmentRepository.findBySubmissionId(submissionId)
+                .map(FlaggingRiskAssessment::getRisk)
+                .filter(r -> r == RiskLevel.HIGH || r == RiskLevel.MEDIUM)
+                .orElse(null);
+
         return new ResultSummaryResponse(
                 submissionId,
                 candidate.getFirstName() + " " + candidate.getLastName(),
@@ -304,7 +314,8 @@ public class SubmissionServiceImpl implements SubmissionService {
                 maxScore,
                 answeredCount,
                 markingStatus,
-                questionDtos
+                questionDtos,
+                aiRiskLevel
         );
     }
 
@@ -444,6 +455,12 @@ public class SubmissionServiceImpl implements SubmissionService {
                         .findBySubmissionIdAndStatusIn(sid, openStatuses).stream())
                 .collect(Collectors.toMap(SubmissionFlag::getSubmissionId, SubmissionFlag::getStatus));
 
+        // Load AI risk assessments for all submissions (only surface MEDIUM/HIGH)
+        Map<UUID, RiskLevel> riskLevelBySubmission = flaggingRiskAssessmentRepository
+                .findBySubmissionIdIn(submissionIds).stream()
+                .filter(ra -> ra.getRisk() == RiskLevel.HIGH || ra.getRisk() == RiskLevel.MEDIUM)
+                .collect(Collectors.toMap(FlaggingRiskAssessment::getSubmissionId, FlaggingRiskAssessment::getRisk));
+
         return submissions.stream()
                 .sorted(Comparator
                         .comparing((CandidateSubmission s) -> s.getStatus() == SubmissionStatus.IN_PROGRESS ? 1 : 0)
@@ -477,7 +494,8 @@ public class SubmissionServiceImpl implements SubmissionService {
                     return new SubmissionSummaryResponse(
                             s.getId(), s.getInvitationId(), s.getCandidateId(), name,
                             s.getAssessmentId(), assessmentTitle,
-                            s.getStatus(), s.getSubmittedAt(), answered, totalAnswerable, marked, score, maxScore, flagStatus, blacklisted
+                            s.getStatus(), s.getSubmittedAt(), answered, totalAnswerable, marked, score, maxScore, flagStatus, blacklisted,
+                            riskLevelBySubmission.get(s.getId())
                     );
                 })
                 .toList();
@@ -516,7 +534,8 @@ public class SubmissionServiceImpl implements SubmissionService {
                     return new SubmissionSummaryResponse(
                             null, inv.getId(), c.getId(), name,
                             assessmentId, assessmentTitle,
-                            SubmissionStatus.NOT_STARTED, null, 0, 0, 0, 0, 0, null, c.isBlacklisted()
+                            SubmissionStatus.NOT_STARTED, null, 0, 0, 0, 0, 0, null, c.isBlacklisted(),
+                            null
                     );
                 })
                 .toList();

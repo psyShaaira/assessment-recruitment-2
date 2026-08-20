@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import com.psybergate.recruitment.take.dto.*;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.Hibernate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class CandidateTakeServiceImpl implements CandidateTakeService {
     private final com.psybergate.recruitment.repository.SubmissionQuestionSnapshotRepository snapshotRepository;
     private final com.psybergate.recruitment.marking.MarkingService markingService;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -178,6 +180,9 @@ public class CandidateTakeServiceImpl implements CandidateTakeService {
 
         // Zero-score any questions the candidate left unanswered
         scoreUnansweredQuestions(submission.getId(), assessmentId);
+
+        // Publish event for async post-processing (e.g. AI auto-flagging)
+        eventPublisher.publishEvent(new SubmissionCompletedEvent(submission.getId(), submission.getAssessmentId()));
 
         return buildSubmitResponse(submission, assessment);
     }

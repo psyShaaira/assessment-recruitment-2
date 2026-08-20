@@ -129,7 +129,8 @@ class FailedGenerationNeverBlocksManualMarkingPropertyTest {
         SubmissionServiceImpl submissionService = new SubmissionServiceImpl(
                 submissionRepository, answerRepository, scoreRepository, candidateRepository,
                 assessmentRepository, assessmentQuestionRepository, questionRepository,
-                submissionFlagRepository, invitationRepository, snapshotRepository);
+                submissionFlagRepository, invitationRepository, snapshotRepository,
+                mock(com.psybergate.recruitment.flag.repository.FlaggingRiskAssessmentRepository.class));
 
         when(submissionRepository.findById(submissionId)).thenReturn(Optional.of(submission));
         when(answerRepository.findById(answerId)).thenReturn(Optional.of(answer));

@@ -1,7 +1,9 @@
 package com.psybergate.recruitment.marking.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.psybergate.recruitment.domain.FlagStatus;
 import com.psybergate.recruitment.domain.SubmissionStatus;
+import com.psybergate.recruitment.flag.domain.RiskLevel;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -21,5 +23,7 @@ public record SubmissionSummaryResponse(
         int totalScore,
         int maxScore,
         FlagStatus flagStatus,
-        boolean candidateBlacklisted
+        boolean candidateBlacklisted,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        RiskLevel aiRiskLevel
 ) {}

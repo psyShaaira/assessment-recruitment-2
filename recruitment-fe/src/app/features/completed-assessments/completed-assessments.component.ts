@@ -73,6 +73,11 @@ import { FeedbackService } from '../../core/feedback/feedback.service';
                       } @else {
                         <span class="badge badge-fail">Fail</span>
                       }
+                      @if (s.aiRiskLevel === 'HIGH') {
+                        <span class="badge badge-risk-high">AI: High Risk</span>
+                      } @else if (s.aiRiskLevel === 'MEDIUM') {
+                        <span class="badge badge-risk-medium">AI: Medium Risk</span>
+                      }
                     </td>
                     <td class="text-dim">{{ s.submittedAt | date:'MMM d, y' }}</td>
                     <td class="actions-cell" (click)="$event.stopPropagation()">
@@ -201,6 +206,8 @@ import { FeedbackService } from '../../core/feedback/feedback.service';
     .badge-pass { background: var(--success-subtle); color: var(--success); }
     .badge-fail { background: var(--danger-subtle, rgba(239,68,68,.08)); color: var(--danger, #ef4444); }
     .badge-marking { background: var(--warning-subtle); color: var(--warning); }
+    .badge-risk-high { background: rgba(239,68,68,.1); color: #dc2626; margin-left: 4px; }
+    .badge-risk-medium { background: rgba(234,179,8,.12); color: #b45309; margin-left: 4px; }
 
     .actions-cell { white-space: nowrap; }
 

@@ -1,0 +1,481 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. Create Flyway migration `V26__create_flagging_risk_assessments.sql` with the schema from design.md (table, unique constraint on `submission_id`, partial index on `risk`).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139793424
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139816402
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139888480
+      }
+    ],
+    "2. Create `RiskLevel` enum (`HIGH`, `MEDIUM`, `LOW`) in `flag/domain/`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139793699
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139903514
+      }
+    ],
+    "3. Create `FlaggingRiskAssessment` JPA entity in `flag/domain/` mapping to `flagging_risk_assessments` table.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139793955
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787140171143
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787140329295
+      }
+    ],
+    "4. Create `FlaggingRiskAssessmentRepository` (Spring Data JPA) in `flag/repository/` with `findBySubmissionId(UUID)` and `findByRiskIn(List<RiskLevel>)`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139794120
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787140343236
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787140601849
+      }
+    ],
+    "5. Create `AiFlaggingProperties` record as `@ConfigurationProperties(prefix = \"flagging\")` in `flag/ai/` with fields: `aiEnabled`, `highThreshold`, `mediumThreshold`, `similarityThreshold`, `timeoutSeconds`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139794328
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787140616369
+      }
+    ],
+    "6. Add `flagging:` configuration block to `application.yaml` and `application-dev.yaml` with default values from design.md.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139794628
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787140880809
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787141024183
+      }
+    ],
+    "7. Create `SubmissionCompletedEvent` record in `take/` package (`submissionId`, `assessmentId`).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139794856
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787141038708
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787141215785
+      }
+    ],
+    "8. Publish `SubmissionCompletedEvent` from `CandidateTakeServiceImpl.submitAssessment()` after `scoreUnansweredQuestions()` using `ApplicationEventPublisher`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139795024
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787141224047
+      }
+    ],
+    "9. Create `SubmissionAnalysisContext` and `AnswerContext` records in `flag/ai/`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139795222
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787141818309
+      }
+    ],
+    "10. Create `AiFlaggingResult` record in `flag/ai/dto/` (`RiskLevel risk`, `List<FlagReason> reasons`, `String rationale`, `double confidence`) with a static `LOW_DEFAULT` constant.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139795490
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787142038802
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787142394291
+      }
+    ],
+    "11. Create `AiFlaggingPromptBuilder` (`@Component`, no deps) — builds prompt from `SubmissionAnalysisContext` following the structure in design.md section 4.4. Include `PROMPT_VERSION = \"v1\"` constant.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139795691
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787142401773
+      }
+    ],
+    "12. Create `AiFlaggingService` interface in `flag/ai/` with `analyze(UUID submissionId)` and `Optional<RiskAssessmentResponse> getRiskAssessment(UUID submissionId)`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139795860
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787142578218
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787142744400
+      }
+    ],
+    "13. Create `AiFlaggingServiceImpl` — implements context building (load submission, answers, assessment, questions), calls prompt builder → `aiService.promptForJson()`, parses response, persists `FlaggingRiskAssessment`, and auto-creates flag via `SubmissionFlagService.createFlag()` for HIGH risk. Use `SYSTEM_ACTOR_ID` (zeroed UUID) and `\"SYSTEM\"` username.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139796041
+      },
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787142752376
+      }
+    ],
+    "14. Implement JSON response parsing in `AiFlaggingServiceImpl` — extract `risk`, `reasons`, `rationale`, `confidence` from Groq response, validate against thresholds from properties, and handle malformed responses gracefully (default to LOW).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139796239
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787145071214
+      }
+    ],
+    "15. Create `SimilarityResult` record in `flag/ai/` (`RiskLevel risk`, `FlagReason reason`, `double maxSimilarity`, `String rationale`).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139796632
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787145541064
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787145700763
+      }
+    ],
+    "16. Create `SimilarityCheckService` interface in `flag/ai/` with `SimilarityResult check(SubmissionAnalysisContext context)`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139796801
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787145708532
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787145788341
+      }
+    ],
+    "17. Implement `SimilarityCheckServiceImpl` — query other SUBMITTED/AUTO_SUBMITTED submissions for same assessment, compute Jaccard word-set similarity on TEXT/CODE answers, return HIGH + `COPIED_ANSWERS` if any pair exceeds threshold.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139796975
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787145795674
+      }
+    ],
+    "18. Implement `normalize()` and `jaccardSimilarity()` helper methods — lowercase, strip punctuation, split on whitespace, filter common stopwords, compute intersection/union ratio.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139797120
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146254713
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146262986
+      }
+    ],
+    "19. Wire `SimilarityCheckService` into `AiFlaggingServiceImpl.analyze()` — run after AI analysis, merge results (take highest risk level).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139797294
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146273018
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146658660
+      }
+    ],
+    "20. Create `AiFlaggingListener` (`@Component`) with `@Async` + `@TransactionalEventListener(phase = AFTER_COMMIT)` method listening for `SubmissionCompletedEvent`. Gate on `properties.isAiEnabled()`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139797588
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146668750
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146957326
+      }
+    ],
+    "21. Configure async executor in `application.yaml` — `spring.task.execution.pool` with core-size 2, max-size 4, queue-capacity 50, thread-name-prefix `ai-flagging-`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139797767
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146966566
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146982089
+      }
+    ],
+    "22. Add `@EnableAsync` to the application config (or verify it's already present).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139798082
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146989926
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787146998396
+      }
+    ],
+    "23. Create `RiskAssessmentResponse` DTO in `flag/ai/dto/` — maps from `FlaggingRiskAssessment` entity.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139798259
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787147006244
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787147013465
+      }
+    ],
+    "24. Add `GET /api/submissions/{submissionId}/risk-assessment` endpoint to `SubmissionFlagController` (or a new `AiFlaggingController`). Secure with `@PreAuthorize(\"hasAnyRole('ADMIN','RECRUITER')\")`. Return 404 if no assessment exists.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139798763
+      }
+    ],
+    "25. Add optional `aiRiskLevel` field to the submission list/detail DTO (only populated for MEDIUM/HIGH).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139799062
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787147366479
+      }
+    ],
+    "26. `AiFlaggingPromptBuilderTest` — verify prompt contains assessment timing, per-answer content, JSON schema instruction, and respects PII isolation (no candidate names).": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139799474
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148086522
+      }
+    ],
+    "27. `AiFlaggingServiceImplTest` — mock `AiService`, verify: HIGH risk → flag created, MEDIUM → no flag, LOW → no flag, AI failure → graceful degradation, open-flag skip, response parsing edge cases.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139799696
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148268440
+      }
+    ],
+    "28. `SimilarityCheckServiceImplTest` — verify Jaccard calculation, threshold boundaries (0.79 → no flag, 0.80 → flag), empty text handling, no other submissions → LOW.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139799933
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148623391
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148633086
+      }
+    ],
+    "29. `AiFlaggingListenerTest` — verify disabled property → no call, enabled → delegates to service, async behavior.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139800158
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148641169
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148649591
+      }
+    ],
+    "30. `AiFlaggingControllerIntegrationTest` — extend `AbstractIntegrationTest`, seed a submission + risk assessment, verify GET returns correct response, verify 404 for missing assessment, verify 403 for unauthenticated/candidate access.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139800476
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148658295
+      }
+    ],
+    "31. Add `aiRiskLevel` field to the frontend submission/result model in `core/flag/` or `core/marking/`.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139800748
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787148998143
+      }
+    ],
+    "32. Display AI risk badge (MEDIUM = yellow, HIGH = red) on submission list and detail views where `aiRiskLevel` is present.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139800961
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787149293209
+      }
+    ],
+    "33. Add \"AI Flagged\" indicator to the flag detail view when `createdBy` is the system actor username.": [
+      {
+        "executionId": "69b4019c-552e-4675-b707-3b37f04a7699",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787139801216
+      },
+      {
+        "executionId": "fe77f60e-dc67-4db2-bd45-4e43adf8a24c",
+        "chatSessionId": "sess_cf17d195-ffa7-4d89-bb69-c8fe0e64e3a1",
+        "timestamp": 1787149794682
+      }
+    ]
+  }
+}

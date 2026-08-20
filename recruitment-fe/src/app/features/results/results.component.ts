@@ -3,7 +3,7 @@ import { ActivatedRoute } from '@angular/router';
 import { MarkingService } from '../../core/marking/marking.service';
 import { ResultQuestion, ResultSummary, SubmissionSummary } from '../../core/marking/marking.model';
 import { FlagService } from '../../core/flag/flag.service';
-import { FlagAuditEntry, FlagListItem, FlagReason, FlagResponse, FlagStatus } from '../../core/flag/flag.model';
+import { FlagAuditEntry, FlagListItem, FlagReason, FlagResponse, FlagStatus, RiskAssessmentResponse } from '../../core/flag/flag.model';
 import { ReminderService } from '../../core/reminder/reminder.service';
 import { ReminderSendLogDto } from '../../core/reminder/reminder.model';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -97,6 +97,11 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                       }
                       @if (s.flagStatus === 'ACTION_REQUIRED') {
                         <span class="flag-badge flag-badge-action">⚠ Action Required</span>
+                      }
+                      @if (s.aiRiskLevel === 'HIGH') {
+                        <span class="ai-risk-badge ai-risk-high">AI: High Risk</span>
+                      } @else if (s.aiRiskLevel === 'MEDIUM') {
+                        <span class="ai-risk-badge ai-risk-medium">AI: Medium Risk</span>
                       }
                     </div>
                     <div class="sub-meta-row">
@@ -224,6 +229,43 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                   <div class="answered-stat">{{ markedQuestionCount() }}/{{ totalQuestionCount() }} questions marked</div>
                   @if (activeFlag()) {
                     <span class="flag-badge-detail">⚑ {{ activeFlag()!.status === 'FLAGGED' ? 'Flagged' : activeFlag()!.status === 'ACTION_REQUIRED' ? 'Action Required' : 'Under Review' }}</span>
+                    @if (activeFlag()!.createdBy === 'SYSTEM') {
+                      <span class="ai-flagged-badge">🤖 AI Flagged</span>
+                    }
+                  }
+                  @if (result()!.aiRiskLevel === 'HIGH' || result()!.aiRiskLevel === 'MEDIUM') {
+                    <div class="ai-risk-tooltip-wrapper">
+                      <span class="ai-risk-badge-detail"
+                            [class.ai-risk-high]="result()!.aiRiskLevel === 'HIGH'"
+                            [class.ai-risk-medium]="result()!.aiRiskLevel === 'MEDIUM'"
+                            (click)="toggleRiskTooltip()"
+                            style="cursor: pointer;">
+                        AI: {{ result()!.aiRiskLevel === 'HIGH' ? 'High' : 'Medium' }} Risk
+                        <span class="tooltip-arrow">{{ riskTooltipOpen() ? '▴' : '▾' }}</span>
+                      </span>
+                      @if (riskTooltipOpen()) {
+                        <div class="ai-risk-tooltip">
+                          @if (riskAssessmentLoading()) {
+                            <div class="tooltip-loading"><span class="loading-dot"></span> Loading…</div>
+                          } @else if (riskAssessment()) {
+                            <div class="tooltip-row">
+                              <span class="tooltip-label">Confidence:</span>
+                              <span class="tooltip-value">{{ (riskAssessment()!.confidence * 100).toFixed(0) }}%</span>
+                            </div>
+                            @if (riskReasonsFormatted()) {
+                              <div class="tooltip-row">
+                                <span class="tooltip-label">Reasons:</span>
+                                <span class="tooltip-value">{{ riskReasonsFormatted() }}</span>
+                              </div>
+                            }
+                            <div class="tooltip-rationale">{{ riskAssessment()!.rationale }}</div>
+                            <div class="tooltip-meta">Analyzed: {{ formatDateTime(riskAssessment()!.analyzedAt) }}</div>
+                          } @else {
+                            <div class="tooltip-error">Could not load details.</div>
+                          }
+                        </div>
+                      }
+                    </div>
                   }
                 </div>
               </div>
@@ -280,6 +322,9 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
                   @for (entry of auditTrail(); track entry.id) {
                     <div class="audit-entry">
                       <span class="audit-action">{{ entry.action === 'CREATED' ? 'Flagged' : entry.fromStatus + ' → ' + entry.toStatus }}</span>
+                      @if (entry.action === 'CREATED' && entry.actorUsername === 'SYSTEM') {
+                        <span class="ai-flagged-badge">🤖 AI Flagged</span>
+                      }
                       <span class="audit-meta">by {{ entry.actorUsername }} · {{ formatDate(entry.occurredAt) }}</span>
                     </div>
                   }
@@ -792,6 +837,7 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
     .detail-scroll { padding: 20px; }
 
     .detail-header {
+      position: relative; z-index: 10;
       display: flex; align-items: flex-start; gap: 14px;
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: var(--radius-lg); padding: 16px 20px; margin-bottom: 16px;
@@ -951,6 +997,15 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
     .flag-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--danger-subtle); color: var(--danger); font-weight: 600; flex-shrink: 0; }
     .flag-badge-action { background: rgba(234,88,12,.12); color: #ea580c; }
     .flag-badge-detail { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--danger-subtle); color: var(--danger); }
+
+    .ai-risk-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; font-weight: 600; flex-shrink: 0; }
+    .ai-risk-high { background: rgba(239,68,68,.1); color: #dc2626; }
+    .ai-risk-medium { background: rgba(234,179,8,.12); color: #b45309; }
+    .ai-risk-badge-detail { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .ai-risk-badge-detail.ai-risk-high { background: rgba(239,68,68,.1); color: #dc2626; }
+    .ai-risk-badge-detail.ai-risk-medium { background: rgba(234,179,8,.12); color: #b45309; }
+
+    .ai-flagged-badge { display: inline-flex; align-items: center; gap: 2px; margin-top: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(99,102,241,.1); color: #4f46e5; }
 
     .flag-section {
       margin: 0 0 14px;
@@ -1241,6 +1296,37 @@ export function isAiEligibleQuestion(q: ResultQuestion): boolean {
     .ai-request-row {
       display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     }
+
+    .ai-risk-tooltip-wrapper { position: relative; display: inline-block; }
+
+    .tooltip-arrow { font-size: 9px; margin-left: 3px; }
+
+    .ai-risk-tooltip {
+      position: absolute; top: calc(100% + 6px); right: 0;
+      min-width: 260px; max-width: 340px;
+      padding: 12px 14px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      z-index: 100;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+
+    .tooltip-loading { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+
+    .tooltip-row { display: flex; gap: 6px; font-size: 12px; }
+    .tooltip-label { color: var(--text-3); font-weight: 600; white-space: nowrap; }
+    .tooltip-value { color: var(--text-1); }
+
+    .tooltip-rationale {
+      font-size: 12px; color: var(--text-2); line-height: 1.5;
+      padding: 6px 0; border-top: 1px solid var(--border);
+      margin-top: 2px;
+    }
+
+    .tooltip-meta { font-size: 11px; color: var(--text-3); }
+
+    .tooltip-error { font-size: 12px; color: var(--danger); }
   `],
 })
 export class ResultsComponent implements OnInit {
@@ -1312,6 +1398,11 @@ export class ResultsComponent implements OnInit {
   // Stale-response guarding — plain fields, not signals (internal bookkeeping only)
   private aiGeneration = 0;
   private aiRequestSeq: Record<string, number> = {};
+
+  // Risk assessment tooltip state
+  readonly riskAssessment = signal<RiskAssessmentResponse | null>(null);
+  readonly riskTooltipOpen = signal(false);
+  readonly riskAssessmentLoading = signal(false);
 
   // Exposed so the template can call the standalone eligibility predicate directly.
   readonly isAiEligibleQuestion = isAiEligibleQuestion;
@@ -1455,6 +1546,9 @@ export class ResultsComponent implements OnInit {
     this.aiLoading.set({});
     this.aiError.set({});
     this.aiAccessDenied.set({});
+    this.riskAssessment.set(null);
+    this.riskTooltipOpen.set(false);
+    this.riskAssessmentLoading.set(false);
     // NOT_STARTED candidates have no submission to load
     if (s.status !== 'NOT_STARTED' && s.submissionId) {
       const submissionId = s.submissionId;
@@ -1690,6 +1784,38 @@ export class ResultsComponent implements OnInit {
     const suggestion = this.aiSuggestions()[questionId];
     if (!suggestion) return;
     this.editScores.update(s => ({ ...s, [questionId]: suggestion.score }));
+  }
+
+  readonly riskReasonsFormatted = computed(() => {
+    const ra = this.riskAssessment();
+    if (!ra || ra.reasons.length === 0) return '';
+    return ra.reasons.map(r => this.flagReasonLabel(r)).join(', ');
+  });
+
+  toggleRiskTooltip(): void {
+    if (this.riskTooltipOpen()) {
+      this.riskTooltipOpen.set(false);
+      return;
+    }
+    const submissionId = this.selectedSummary()?.submissionId;
+    if (!submissionId) return;
+
+    if (this.riskAssessment()) {
+      this.riskTooltipOpen.set(true);
+      return;
+    }
+
+    this.riskAssessmentLoading.set(true);
+    this.riskTooltipOpen.set(true);
+    this.flagSvc.getRiskAssessment(submissionId).subscribe({
+      next: assessment => {
+        this.riskAssessment.set(assessment);
+        this.riskAssessmentLoading.set(false);
+      },
+      error: () => {
+        this.riskAssessmentLoading.set(false);
+      },
+    });
   }
 
   regenerateReport(): void {

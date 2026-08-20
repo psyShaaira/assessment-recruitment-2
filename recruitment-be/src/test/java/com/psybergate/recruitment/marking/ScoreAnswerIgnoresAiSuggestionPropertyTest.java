@@ -65,7 +65,8 @@ class ScoreAnswerIgnoresAiSuggestionPropertyTest {
         SubmissionServiceImpl service = new SubmissionServiceImpl(
                 submissionRepository, answerRepository, scoreRepository, candidateRepository,
                 assessmentRepository, assessmentQuestionRepository, questionRepository,
-                submissionFlagRepository, invitationRepository, snapshotRepository);
+                submissionFlagRepository, invitationRepository, snapshotRepository,
+                mock(com.psybergate.recruitment.flag.repository.FlaggingRiskAssessmentRepository.class));
 
         UUID submissionId = UUID.randomUUID();
         UUID answerId = UUID.randomUUID();
