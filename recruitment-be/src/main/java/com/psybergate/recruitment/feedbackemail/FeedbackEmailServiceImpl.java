@@ -1,7 +1,6 @@
 package com.psybergate.recruitment.feedbackemail;
 
 import com.psybergate.recruitment.ai.AiResponseException;
-import com.psybergate.recruitment.ai.AiService;
 import com.psybergate.recruitment.domain.Candidate;
 import com.psybergate.recruitment.domain.CandidateSubmission;
 import com.psybergate.recruitment.email.EmailService;
@@ -15,12 +14,10 @@ import com.psybergate.recruitment.feedbackemail.dto.FeedbackEmailSendLogDto;
 import com.psybergate.recruitment.feedbackemail.dto.FeedbackEmailSendResponse;
 import com.psybergate.recruitment.feedbackemail.repository.FeedbackEmailSendLogRepository;
 import com.psybergate.recruitment.marking.SubmissionService;
-import com.psybergate.recruitment.marking.dto.ResultQuestionDto;
 import com.psybergate.recruitment.marking.dto.ResultSummaryResponse;
 import com.psybergate.recruitment.repository.CandidateRepository;
 import com.psybergate.recruitment.repository.CandidateSubmissionRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,7 +27,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FeedbackEmailServiceImpl implements FeedbackEmailService {
@@ -45,7 +41,6 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
     private final FeedbackEmailSendLogRepository feedbackEmailSendLogRepository;
     private final FeedbackEmailSendLogWriter feedbackEmailSendLogWriter;
     private final EmailService emailService;
-    private final AiService aiService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -65,8 +60,7 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
         // Req 2.5: resolve the candidate's name/email from the submission.
         Candidate candidate = resolveCandidate(submissionId);
 
-        // Req 2.6: use AI to generate a candidate-friendly email body from the structured feedback.
-        // Falls back to the static template if the AI call fails.
+        // Req 2.6: render the report content into a plain-text email body.
         FeedbackReportContent content = parseContent(report.getContent());
         String body = renderBody(content, result, candidate.getFirstName());
 
@@ -160,14 +154,6 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
         body.append("Keep up the great work, and don't hesitate to reach out if you have any questions about your feedback.\n\n");
         body.append("The Psybergate Recruitment Team");
         return body.toString();
-    }
-
-    private List<ResultQuestionDto> flattenQuestions(List<ResultQuestionDto> questions) {
-        return questions.stream()
-                .flatMap(q -> q.subQuestions() != null && !q.subQuestions().isEmpty()
-                        ? q.subQuestions().stream()
-                        : java.util.stream.Stream.of(q))
-                .toList();
     }
 
     /**
