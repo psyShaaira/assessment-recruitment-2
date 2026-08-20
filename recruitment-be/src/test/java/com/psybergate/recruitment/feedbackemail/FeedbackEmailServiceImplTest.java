@@ -222,7 +222,7 @@ class FeedbackEmailServiceImplTest {
     private ResultSummaryResponse resultWithStatus(String markingStatus) {
         return new ResultSummaryResponse(
                 submissionId, "Jane Doe", "Java Developer Assessment",
-                Instant.now(), 8, 10, 2, markingStatus, List.of()
+                Instant.now(), 8, 10, 2, markingStatus, List.of(), null
         );
     }
 

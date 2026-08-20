@@ -207,7 +207,8 @@ class FeedbackReportServiceImplTest {
                 List.of(
                         question(q1Id, "Write a Java method", 4, 5),
                         question(q2Id, "Explain OOP principles", 4, 5)
-                )
+                ),
+                null
         );
     }
 
@@ -222,7 +223,8 @@ class FeedbackReportServiceImplTest {
                 List.of(
                         question(q1Id, "Write a Java method", 4, 5),
                         questionUnscored(q2Id, "Explain OOP principles", 5)
-                )
+                ),
+                null
         );
     }
 

@@ -7,6 +7,7 @@ import {
   FlagListItem,
   FlagReason,
   FlagResponse,
+  RiskAssessmentResponse,
   TransitionFlagRequest,
 } from './flag.model';
 
@@ -48,5 +49,9 @@ export class FlagService {
     if (filters?.fromDate) params = params.set('fromDate', filters.fromDate);
     if (filters?.toDate) params = params.set('toDate', filters.toDate);
     return this.http.get<FlagListItem[]>('/api/flags', { params });
+  }
+
+  getRiskAssessment(submissionId: string): Observable<RiskAssessmentResponse> {
+    return this.http.get<RiskAssessmentResponse>(`/api/submissions/${submissionId}/risk-assessment`);
   }
 }

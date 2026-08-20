@@ -11,6 +11,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
@@ -38,6 +39,7 @@ class CandidateTakeServiceTest {
     @Mock private SubmissionQuestionSnapshotRepository snapshotRepository;
     @Mock private MarkingService markingService;
     @Mock private ObjectMapper objectMapper;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CandidateTakeServiceImpl service;

@@ -52,4 +52,10 @@ public interface CandidateSubmissionRepository extends JpaRepository<CandidateSu
 
     @Query("SELECT cs FROM CandidateSubmission cs WHERE cs.status IN :statuses ORDER BY cs.createdAt DESC")
     List<CandidateSubmission> findRecentByStatusIn(@Param("statuses") List<SubmissionStatus> statuses, Pageable pageable);
+
+    @Query("SELECT cs FROM CandidateSubmission cs WHERE cs.assessmentId = :assessmentId AND cs.status IN :statuses AND cs.id <> :excludeId")
+    List<CandidateSubmission> findByAssessmentIdAndStatusInAndIdNot(
+            @Param("assessmentId") UUID assessmentId,
+            @Param("statuses") List<SubmissionStatus> statuses,
+            @Param("excludeId") UUID excludeId);
 }
