@@ -1,7 +1,5 @@
 package com.psybergate.recruitment.feedbackemail;
 
-import com.psybergate.recruitment.ai.AiResponseException;
-import com.psybergate.recruitment.ai.AiService;
 import com.psybergate.recruitment.domain.Candidate;
 import com.psybergate.recruitment.domain.CandidateSubmission;
 import com.psybergate.recruitment.email.EmailService;
@@ -45,7 +43,6 @@ class FeedbackEmailServiceImplTest {
     @Mock private FeedbackEmailSendLogRepository feedbackEmailSendLogRepository;
     @Mock private FeedbackEmailSendLogWriter feedbackEmailSendLogWriter;
     @Mock private EmailService emailService;
-    @Mock private AiService aiService;
 
     @InjectMocks
     private FeedbackEmailServiceImpl service;
@@ -77,74 +74,47 @@ class FeedbackEmailServiceImplTest {
         submission.setCandidateId(candidate.getId());
     }
 
-    // ── happy path: AI generates email body ──────────────────────────────────
+    // ── happy path: rendered plain-text body (Req 2.6-2.19) ──────────────────
 
     @Test
-    void sendFeedbackEmail_aiSuccess_sendsAiGeneratedBody() {
-        String aiBody = "Hi Jane,\n\nGreat job on your assessment!\n\nThe Psybergate Recruitment Team";
+    void sendFeedbackEmail_success_rendersStructuredBody() {
         setupHappyPath();
-        when(aiService.prompt(anyString())).thenReturn(aiBody);
 
         FeedbackEmailSendResponse response = service.sendFeedbackEmail(submissionId, sentBy);
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(emailService).sendFeedbackReport(eq(candidate), bodyCaptor.capture());
         String body = bodyCaptor.getValue();
-        // Results section at top
-        assertThat(body).contains("Assessment: Java Developer Assessment");
-        assertThat(body).contains("Score: 8 / 10");
-        // AI feedback appended after
-        assertThat(body).contains(aiBody);
-        assertThat(response.status()).isEqualTo(FeedbackEmailSendStatus.SENT);
-    }
 
-    @Test
-    void sendFeedbackEmail_aiSuccess_promptContainsFeedbackContentAndIsShort() {
-        setupHappyPath();
-        when(aiService.prompt(anyString())).thenReturn("some body");
-
-        service.sendFeedbackEmail(submissionId, sentBy);
-
-        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(aiService).prompt(promptCaptor.capture());
-        String prompt = promptCaptor.getValue();
-        assertThat(prompt).contains("Jane");
-        assertThat(prompt).contains("Java Developer Assessment");
-        assertThat(prompt).contains("Good performance");
-        assertThat(prompt).contains("OOP");
-        assertThat(prompt).contains("8 / 10");
-        assertThat(prompt).contains("300-400 words");
-    }
-
-    // ── AI fallback: falls back to static template ───────────────────────────
-
-    @Test
-    void sendFeedbackEmail_aiFailure_fallsBackToStaticTemplate() {
-        setupHappyPath();
-        when(aiService.prompt(anyString())).thenThrow(new AiResponseException("AI unavailable"));
-
-        FeedbackEmailSendResponse response = service.sendFeedbackEmail(submissionId, sentBy);
-
-        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(emailService).sendFeedbackReport(eq(candidate), bodyCaptor.capture());
-        String body = bodyCaptor.getValue();
-        assertThat(body).contains("Assessment: Java Developer Assessment");
-        assertThat(body).contains("Score: 8 / 10");
-        assertThat(body).contains("Good performance");
-        assertThat(body).contains("OOP");
+        assertThat(body).startsWith("Hi Jane,");
+        assertThat(body).contains("Here is your feedback on your recent assessment:");
+        assertThat(body).contains("You scored 80% overall.");
+        assertThat(body).contains("You demonstrated strong performance in OOP.");
+        assertThat(body).contains("There is room for improvement in OOP.");
+        assertThat(body).contains("Here are some next steps to help you continue improving:");
+        assertThat(body).contains("- Practice design patterns");
         assertThat(body).contains("The Psybergate Recruitment Team");
         assertThat(response.status()).isEqualTo(FeedbackEmailSendStatus.SENT);
     }
 
     @Test
-    void sendFeedbackEmail_aiThrowsRuntimeException_fallsBackToStaticTemplate() {
-        setupHappyPath();
-        when(aiService.prompt(anyString())).thenThrow(new RuntimeException("connection refused"));
+    void sendFeedbackEmail_noStrongOrWeakTopics_omitsStrengthsAndWeaknessesSentences() {
+        setupHappyPathWithReport(feedbackReportWithTopics("""
+                {
+                  "overallSummary": "Solid effort",
+                  "topics": [{"topic": "OOP", "strengths": "", "weaknesses": null}],
+                  "nextSteps": ["Practice design patterns"]
+                }
+                """));
 
         service.sendFeedbackEmail(submissionId, sentBy);
 
-        verify(emailService).sendFeedbackReport(eq(candidate), argThat(body ->
-                body.contains("Score: 8 / 10") && body.contains("Good performance")));
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendFeedbackReport(eq(candidate), bodyCaptor.capture());
+        String body = bodyCaptor.getValue();
+
+        assertThat(body).doesNotContain("strong performance");
+        assertThat(body).doesNotContain("room for improvement");
     }
 
     // ── validation: submission not fully marked ──────────────────────────────
@@ -159,7 +129,7 @@ class FeedbackEmailServiceImplTest {
                 .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
                 .isEqualTo(409);
 
-        verifyNoInteractions(aiService, emailService);
+        verifyNoInteractions(emailService);
     }
 
     // ── validation: no feedback report ───────────────────────────────────────
@@ -175,7 +145,7 @@ class FeedbackEmailServiceImplTest {
                 .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
                 .isEqualTo(404);
 
-        verifyNoInteractions(aiService, emailService);
+        verifyNoInteractions(emailService);
     }
 
     // ── email send failure: logs FAILED and throws 502 ───────────────────────
@@ -190,7 +160,6 @@ class FeedbackEmailServiceImplTest {
                 .thenReturn(Optional.of(submission));
         when(candidateRepository.findById(candidate.getId()))
                 .thenReturn(Optional.of(candidate));
-        when(aiService.prompt(anyString())).thenReturn("AI body");
         doThrow(new RuntimeException("SMTP timeout")).when(emailService).sendFeedbackReport(any(), anyString());
 
         assertThatThrownBy(() -> service.sendFeedbackEmail(submissionId, sentBy))
@@ -204,10 +173,14 @@ class FeedbackEmailServiceImplTest {
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private void setupHappyPath() {
+        setupHappyPathWithReport(feedbackReport());
+    }
+
+    private void setupHappyPathWithReport(SubmissionFeedbackReport report) {
         ResultSummaryResponse result = resultWithStatus("FULLY_MARKED");
         when(submissionService.getResult(submissionId)).thenReturn(result);
         when(submissionFeedbackReportRepository.findBySubmissionId(submissionId))
-                .thenReturn(Optional.of(feedbackReport()));
+                .thenReturn(Optional.of(report));
         when(candidateSubmissionRepository.findById(submissionId))
                 .thenReturn(Optional.of(submission));
         when(candidateRepository.findById(candidate.getId()))
@@ -227,9 +200,13 @@ class FeedbackEmailServiceImplTest {
     }
 
     private SubmissionFeedbackReport feedbackReport() {
+        return feedbackReportWithTopics(validFeedbackJson());
+    }
+
+    private SubmissionFeedbackReport feedbackReportWithTopics(String json) {
         SubmissionFeedbackReport report = new SubmissionFeedbackReport();
         report.setSubmissionId(submissionId);
-        report.setContent(validFeedbackJson());
+        report.setContent(json);
         report.setAiGenerated(true);
         report.setPromptVersion("v1");
         report.setGeneratedAt(Instant.now());
