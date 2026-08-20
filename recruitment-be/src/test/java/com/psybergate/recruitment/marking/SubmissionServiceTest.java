@@ -33,6 +33,8 @@ class SubmissionServiceTest {
     @Mock private QuestionRepository questionRepository;
     @Mock private SubmissionFlagRepository submissionFlagRepository;
     @Mock private InvitationRepository invitationRepository;
+    @Mock private com.psybergate.recruitment.repository.SubmissionQuestionSnapshotRepository snapshotRepository;
+    @Mock private com.psybergate.recruitment.flag.repository.FlaggingRiskAssessmentRepository flaggingRiskAssessmentRepository;
 
     @InjectMocks
     private SubmissionServiceImpl service;
