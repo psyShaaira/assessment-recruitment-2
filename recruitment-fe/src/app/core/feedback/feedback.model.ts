@@ -17,3 +17,9 @@ export interface FeedbackReportResponse {
   promptVersion: string;
   generatedAt: string;
 }
+
+export interface FeedbackEmailSendResponse {
+  submissionId: string;
+  status: 'SENT' | 'FAILED';
+  sentAt: string;
+}
