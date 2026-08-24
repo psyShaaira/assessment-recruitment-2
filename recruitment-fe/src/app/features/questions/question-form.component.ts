@@ -95,7 +95,14 @@ type SubQuestionEntry =
 
                   @if (aiDrafts().length > 0) {
                     <div class="ai-draft-nav">
-                      <span>Draft {{ aiDraftIndex() + 1 }} of {{ aiDrafts().length }} — applied to the form below for review</span>
+                      <span>
+                        Draft {{ aiDraftIndex() + 1 }} of {{ aiDrafts().length }}
+                        @if (aiSavedDrafts().has(aiDraftIndex())) {
+                          <span class="ai-draft-saved-badge">✓ Saved</span>
+                        } @else {
+                          <span class="ai-draft-unsaved-badge">Unsaved</span>
+                        }
+                      </span>
                       @if (aiDrafts().length > 1) {
                         <div class="ai-draft-nav-btns">
                           <button type="button" class="btn btn-ghost btn-sm"
@@ -107,6 +114,13 @@ type SubQuestionEntry =
                         </div>
                       }
                     </div>
+                    @if (aiDrafts().length > 1 && aiUnsavedCount() > 0) {
+                      <button type="button" class="btn btn-secondary btn-sm"
+                        [disabled]="aiSavingAll() || aiUnsavedCount() === 0"
+                        (click)="saveAllDrafts()">
+                        {{ aiSavingAll() ? 'Saving all…' : 'Save All ' + aiUnsavedCount() + ' Drafts' }}
+                      </button>
+                    }
                   }
                 </div>
               </div>
@@ -624,6 +638,8 @@ type SubQuestionEntry =
       border-top: 1px solid rgba(255,255,255,.1); font-size: 12px; color: var(--text-2);
     }
     .ai-draft-nav-btns { display: flex; gap: 6px; flex-shrink: 0; }
+    .ai-draft-saved-badge { color: var(--success, #22c55e); font-weight: 600; margin-left: 6px; }
+    .ai-draft-unsaved-badge { color: var(--warning, #eab308); font-weight: 500; margin-left: 6px; }
 
     .form-actions {
       display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;
@@ -651,6 +667,13 @@ export class QuestionFormComponent implements OnInit {
   readonly aiGenerating = signal(false);
   readonly aiDrafts = signal<QuestionRequest[]>([]);
   readonly aiDraftIndex = signal(0);
+  readonly aiSavedDrafts = signal<Set<number>>(new Set());
+  readonly aiSavingAll = signal(false);
+
+  readonly aiUnsavedCount = computed(() => {
+    const total = this.aiDrafts().length;
+    return total - this.aiSavedDrafts().size;
+  });
 
   readonly aiDifficultyOptions: { value: Difficulty; label: string }[] = [
     { value: 'EASY', label: 'Easy' },
@@ -920,6 +943,7 @@ export class QuestionFormComponent implements OnInit {
         this.aiGenerating.set(false);
         this.aiDrafts.set(drafts);
         this.aiDraftIndex.set(0);
+        this.aiSavedDrafts.set(new Set());
         this.applyAiDraft(drafts[0]);
         this.toastSvc.show(
           `Generated ${drafts.length} question${drafts.length > 1 ? 's' : ''} — review and edit before saving.`,
@@ -968,6 +992,46 @@ export class QuestionFormComponent implements OnInit {
       default:
         return 'Failed to generate a question. Try again.';
     }
+  }
+
+  // ── Save All AI Drafts ─────────────────────────────────────────────────
+
+  saveAllDrafts() {
+    const drafts = this.aiDrafts();
+    const saved = this.aiSavedDrafts();
+    const unsaved = drafts
+      .map((d, i) => ({ draft: d, index: i }))
+      .filter(({ index }) => !saved.has(index));
+
+    if (unsaved.length === 0) return;
+
+    this.aiSavingAll.set(true);
+    const calls = unsaved.map(({ draft }) => this.svc.createQuestion({
+      type: draft.type,
+      title: draft.title,
+      body: draft.body,
+      tags: draft.tags ?? [],
+      maxScore: draft.maxScore ?? 1,
+      difficulty: draft.difficulty ?? null,
+      ...(draft.type === 'MCQ' && draft.options && { options: draft.options }),
+      ...(draft.type === 'CODE_SUBMISSION' && draft.languageHint && { languageHint: draft.languageHint }),
+    }));
+
+    forkJoin(calls).subscribe({
+      next: () => {
+        this.aiSavingAll.set(false);
+        const allSaved = new Set<number>(drafts.map((_, i) => i));
+        this.aiSavedDrafts.set(allSaved);
+        this.toastSvc.show(
+          `All ${unsaved.length} draft${unsaved.length > 1 ? 's' : ''} saved successfully.`,
+          'success'
+        );
+      },
+      error: err => {
+        this.aiSavingAll.set(false);
+        this.toastSvc.show(err?.error?.detail ?? 'Failed to save some drafts. Try again.', 'error');
+      },
+    });
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────
@@ -1024,7 +1088,29 @@ export class QuestionFormComponent implements OnInit {
       : this.svc.createQuestion(payload);
 
     op.subscribe({
-      next: () => this.router.navigate(['/questions']),
+      next: () => {
+        // If we're working through AI drafts, mark current as saved and advance
+        const drafts = this.aiDrafts();
+        if (drafts.length > 1 && !this.editId()) {
+          const currentIdx = this.aiDraftIndex();
+          const saved = new Set(this.aiSavedDrafts());
+          saved.add(currentIdx);
+          this.aiSavedDrafts.set(saved);
+
+          // Find the next unsaved draft
+          const nextUnsaved = drafts.findIndex((_, i) => i !== currentIdx && !saved.has(i));
+          if (nextUnsaved !== -1) {
+            this.saving.set(false);
+            this.showAiDraft(nextUnsaved);
+            this.toastSvc.show(
+              `Saved draft ${currentIdx + 1} of ${drafts.length}. Showing next unsaved draft.`,
+              'success'
+            );
+            return;
+          }
+        }
+        this.router.navigate(['/questions']);
+      },
       error: err => {
         this.error.set(err?.error?.detail ?? 'Failed to save question.');
         this.saving.set(false);
