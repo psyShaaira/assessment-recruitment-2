@@ -958,8 +958,43 @@ export class QuestionFormComponent implements OnInit {
   }
 
   showAiDraft(index: number) {
+    // Capture any edits made to the current draft before switching away
+    this.syncCurrentDraftFromForm();
     this.aiDraftIndex.set(index);
     this.applyAiDraft(this.aiDrafts()[index]);
+  }
+
+  /**
+   * Fold the current form values back into the draft currently displayed so
+   * edits (title, body, tags, options, etc.) aren't lost when navigating
+   * between drafts or saving all of them.
+   */
+  private syncCurrentDraftFromForm() {
+    const drafts = this.aiDrafts();
+    const idx = this.aiDraftIndex();
+    if (idx < 0 || idx >= drafts.length) return;
+
+    const current = drafts[idx];
+    const tags = (this.form.get('tagsRaw')!.value ?? '')
+      .split(',').map((t: string) => t.trim()).filter(Boolean);
+
+    const updated: QuestionRequest = {
+      ...current,
+      title: this.form.get('title')!.value ?? current.title,
+      body: this.form.get('body')!.value ?? current.body,
+      tags,
+      difficulty: this.form.get('difficulty')!.value ?? null,
+      ...(current.type === 'MCQ' && {
+        options: this.options.value as { text: string; correct: boolean }[],
+      }),
+      ...(current.type === 'CODE_SUBMISSION' && {
+        languageHint: this.form.get('languageHint')!.value ?? current.languageHint,
+      }),
+    };
+
+    const next = [...drafts];
+    next[idx] = updated;
+    this.aiDrafts.set(next);
   }
 
   private applyAiDraft(draft: QuestionRequest) {
@@ -997,6 +1032,8 @@ export class QuestionFormComponent implements OnInit {
   // ── Save All AI Drafts ─────────────────────────────────────────────────
 
   saveAllDrafts() {
+    // Fold edits from the currently-shown draft back in before saving
+    this.syncCurrentDraftFromForm();
     const drafts = this.aiDrafts();
     const saved = this.aiSavedDrafts();
     const unsaved = drafts
