@@ -59,3 +59,8 @@ flagging:
   medium-threshold: 0.5
   similarity-threshold: 0.8
   timeout-seconds: 30
+
+clarification:
+  enabled: ${CLARIFICATION_ENABLED:true}
+  max-per-question: ${CLARIFICATION_MAX_PER_QUESTION:3}
+  max-per-assessment: ${CLARIFICATION_MAX_PER_ASSESSMENT:15}
