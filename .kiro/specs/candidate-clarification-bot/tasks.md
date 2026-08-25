@@ -33,12 +33,12 @@
 
 ## Phase 6: Frontend
 
-- [ ] 17. Add a `ClarificationResponse` model and `askClarification(token, questionId, candidateNote?)` to `core/take/candidate-take.service.ts`, POSTing to `/api/take/clarify` with an explicit `Authorization: Bearer` header.
-- [ ] 18. Add the clarification UI to `features/assessments/assessment-take.component.ts`: a "Need clarification?" button in `.question-meta`, a panel with an optional note input + response area scoped to the current question, loading state, remaining-quota display, and 429/degraded handling. Reset panel state on question change.
-- [ ] 19. `candidate-take.service.spec.ts` — assert `askClarification` POSTs to the endpoint with the Bearer header and body, and handles the response (`HttpTestingController`).
-- [ ] 20. Update/extend the take component spec — button renders per question, click calls the service, clarification renders, 429 disables the control.
+- [x] 17. Add a `ClarificationResponse` model and `askClarification(token, questionId, candidateNote?)` to `core/take/candidate-take.service.ts`, POSTing to `/api/take/clarify` with an explicit `Authorization: Bearer` header. (also added `ClarificationRequest` model)
+- [x] 18. Add the clarification UI to `features/assessments/assessment-take.component.ts`: a "Need clarification?" button in `.question-meta`, a panel with an optional note input + response area scoped to the current question, loading state, remaining-quota display, and 429/degraded handling. Reset panel state on question change (hooked into `prev()`/`next()`).
+- [x] 19. `candidate-take.service.spec.ts` — assert `askClarification` POSTs to the endpoint with the Bearer header and body, and handles the response (`HttpTestingController`). (2 tests: with-note and null-note)
+- [x] 20. Update/extend the take component spec — toggle panel, click calls the service + renders clarification, exhausted quota, 429 disables the control, reset on navigation. (5 tests)
 
 ## Phase 7: Verification
 
-- [ ] 21. Run `./mvnw test` (backend) and `npm test` + `npx tsc --noEmit` (frontend); ensure green.
-- [ ] 22. Run `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`; confirm mutation coverage stays ≥ 29.
+- [x] 21. Run `./mvnw test` (backend) and `npm test` + `npx tsc --noEmit` (frontend); ensure green. Backend: 388 tests, 0 failures/errors. Frontend: 117 tests pass, tsc clean (run under Node 24 via nvm — system node is v12).
+- [x] 22. Run `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`; confirm mutation coverage stays ≥ 29. Passed (overall 44%, threshold 29). Clarification classes: `ClarificationServiceImpl` 18/18 killed, `ClarificationPromptBuilder` 10/13, `ClarificationController` 0/1 (thin controller, covered only by the PIT-excluded integration test — consistent with other controllers).
