@@ -61,3 +61,15 @@ export interface SubmitResponse {
   answeredCount: number;
   totalQuestionCount: number;
 }
+
+export interface ClarificationRequest {
+  questionId: string;
+  candidateNote?: string | null;
+}
+
+export interface ClarificationResponse {
+  clarification: string;
+  remainingForQuestion: number;
+  remainingForAssessment: number;
+  degraded: boolean;
+}

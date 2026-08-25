@@ -3,6 +3,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   AssessmentTakeResponse,
+  ClarificationResponse,
   SaveAnswersRequest,
   SaveAnswersResponse,
   SubmitRequest,
@@ -29,5 +30,17 @@ export class CandidateTakeService {
     return this.http.post<SubmitResponse>('/api/take/submit', req, {
       headers: new HttpHeaders({ Authorization: `Bearer ${sessionToken}` }),
     });
+  }
+
+  askClarification(
+    sessionToken: string,
+    questionId: string,
+    candidateNote?: string,
+  ): Observable<ClarificationResponse> {
+    return this.http.post<ClarificationResponse>(
+      '/api/take/clarify',
+      { questionId, candidateNote: candidateNote ?? null },
+      { headers: new HttpHeaders({ Authorization: `Bearer ${sessionToken}` }) },
+    );
   }
 }

@@ -187,6 +187,41 @@ public class CandidateTakeServiceImpl implements CandidateTakeService {
         return buildSubmitResponse(submission, assessment);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public ClarificationTarget resolveQuestionForClarification(UUID candidateId, UUID assessmentId, UUID questionId) {
+        Assessment assessment = requireAssessment(assessmentId);
+        CandidateSubmission submission = requireActiveSubmission(candidateId, assessmentId);
+        checkDeadline(submission, assessment);
+
+        List<TakeQuestionDto> questions = resolveQuestions(assessment, submission.getId()).stream()
+                .map(this::toTakeQuestion)
+                .toList();
+
+        TakeQuestionDto match = findQuestion(questions, questionId);
+        if (match == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Question " + questionId + " does not belong to this assessment");
+        }
+
+        return new ClarificationTarget(submission.getId(), match);
+    }
+
+    private TakeQuestionDto findQuestion(List<TakeQuestionDto> questions, UUID questionId) {
+        for (TakeQuestionDto q : questions) {
+            if (q.id().equals(questionId)) {
+                return q;
+            }
+            if (q.subQuestions() != null) {
+                TakeQuestionDto sub = findQuestion(q.subQuestions(), questionId);
+                if (sub != null) {
+                    return sub;
+                }
+            }
+        }
+        return null;
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private List<AssessmentQuestion> resolveQuestions(Assessment assessment, UUID submissionId) {

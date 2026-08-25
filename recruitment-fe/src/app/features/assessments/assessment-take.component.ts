@@ -206,8 +206,47 @@ import { CodeRunnerPanelComponent } from '../../shared/code-runner/code-runner-p
                     </svg>
                     {{ flagged().has(q.id) ? 'Flagged' : 'Flag' }}
                   </button>
+                  <button class="clarify-btn" (click)="toggleClarify()" [class.active]="clarifyOpen()" title="Ask what this question means">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    Need clarification?
+                  </button>
                 </div>
                 <p class="question-body">{{ q.body }}</p>
+
+                @if (clarifyOpen()) {
+                  <div class="clarify-panel">
+                    <p class="clarify-hint">
+                      Ask what the question means. You'll get a plain-language explanation — not the answer.
+                    </p>
+                    <textarea
+                      class="clarify-note"
+                      rows="2"
+                      maxlength="500"
+                      placeholder="Optional: what specifically is unclear?"
+                      [value]="clarifyNote()"
+                      (input)="clarifyNote.set($any($event.target).value)"
+                      [disabled]="clarifyLoading()"></textarea>
+                    <div class="clarify-actions">
+                      <button
+                        class="clarify-ask-btn"
+                        (click)="askClarification(q.id)"
+                        [disabled]="clarifyLoading() || clarifyExhausted()">
+                        {{ clarifyLoading() ? 'Asking…' : 'Ask' }}
+                      </button>
+                      @if (clarifyRemaining() !== null) {
+                        <span class="clarify-remaining">{{ clarifyRemaining() }} left for this question</span>
+                      }
+                    </div>
+                    @if (clarifyError()) {
+                      <p class="clarify-error">{{ clarifyError() }}</p>
+                    }
+                    @if (clarifyText()) {
+                      <div class="clarify-response" [class.degraded]="clarifyDegraded()">{{ clarifyText() }}</div>
+                    }
+                  </div>
+                }
 
                 @if (q.type === 'MCQ' && q.options) {
                   <div class="mcq-options">
@@ -597,6 +636,42 @@ import { CodeRunnerPanelComponent } from '../../shared/code-runner/code-runner-p
     .flag-btn:hover { border-color: var(--warning); color: var(--warning); }
     .flag-btn.flagged { background: var(--warning-subtle); border-color: var(--warning); color: var(--warning); }
 
+    .clarify-btn {
+      font-size: 12px; padding: 5px 10px;
+      display: inline-flex; align-items: center; gap: 5px;
+      background: none; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      color: var(--text-2); cursor: pointer; font-family: var(--font); transition: all 120ms;
+    }
+    .clarify-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .clarify-btn.active { background: var(--accent-subtle, rgba(99,102,241,0.1)); border-color: var(--accent); color: var(--accent); }
+
+    .clarify-panel {
+      margin: 0 20px 16px; padding: 14px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface-2, rgba(0,0,0,0.02));
+    }
+    .clarify-hint { margin: 0 0 10px; font-size: 12.5px; color: var(--text-2); }
+    .clarify-note {
+      width: 100%; box-sizing: border-box; resize: vertical;
+      padding: 8px 10px; font-family: var(--font); font-size: 13px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text-1);
+    }
+    .clarify-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+    .clarify-ask-btn {
+      padding: 6px 16px; font-size: 13px; font-family: var(--font); cursor: pointer;
+      background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm);
+    }
+    .clarify-ask-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .clarify-remaining { font-size: 12px; color: var(--text-2); }
+    .clarify-error { margin: 10px 0 0; font-size: 12.5px; color: var(--danger, #dc2626); }
+    .clarify-response {
+      margin-top: 12px; padding: 12px; font-size: 13.5px; line-height: 1.6;
+      color: var(--text-1); background: var(--surface); border-radius: var(--radius-sm);
+      border-left: 3px solid var(--accent); white-space: pre-wrap;
+    }
+    .clarify-response.degraded { border-left-color: var(--warning); color: var(--text-2); }
+
     .question-body {
       padding: 16px 20px 18px;
       font-size: 14.5px; color: var(--text-1); line-height: 1.7; margin: 0;
@@ -761,6 +836,16 @@ export class AssessmentTakeComponent implements OnInit, OnDestroy {
   readonly answers = signal<Record<string, string | undefined>>({});
   readonly flagged = signal<Set<string>>(new Set());
   readonly timeLeft = signal(0);
+
+  // Clarification panel state — scoped to the current question, reset on navigation.
+  readonly clarifyOpen = signal(false);
+  readonly clarifyLoading = signal(false);
+  readonly clarifyNote = signal('');
+  readonly clarifyText = signal<string | null>(null);
+  readonly clarifyError = signal<string | null>(null);
+  readonly clarifyDegraded = signal(false);
+  readonly clarifyRemaining = signal<number | null>(null);
+  readonly clarifyExhausted = signal(false);
 
   // Prefilled in the code editor; never autosaved until the candidate edits.
   // "Main" is a contract with the run endpoint, which compiles the file as Main.java.
@@ -1116,12 +1201,60 @@ export class AssessmentTakeComponent implements OnInit, OnDestroy {
   }
 
   prev() {
-    if (this.currentIndex() > 0) this.currentIndex.update(i => i - 1);
+    if (this.currentIndex() > 0) {
+      this.currentIndex.update(i => i - 1);
+      this.resetClarify();
+    }
   }
 
   next() {
     const p = this.preview();
-    if (p && this.currentIndex() < p.questions.length - 1) this.currentIndex.update(i => i + 1);
+    if (p && this.currentIndex() < p.questions.length - 1) {
+      this.currentIndex.update(i => i + 1);
+      this.resetClarify();
+    }
+  }
+
+  toggleClarify() {
+    this.clarifyOpen.update(open => !open);
+  }
+
+  private resetClarify() {
+    this.clarifyOpen.set(false);
+    this.clarifyLoading.set(false);
+    this.clarifyNote.set('');
+    this.clarifyText.set(null);
+    this.clarifyError.set(null);
+    this.clarifyDegraded.set(false);
+    this.clarifyRemaining.set(null);
+    this.clarifyExhausted.set(false);
+  }
+
+  askClarification(questionId: string) {
+    const token = this.sessionToken();
+    if (!token || this.clarifyLoading() || this.clarifyExhausted()) return;
+
+    this.clarifyLoading.set(true);
+    this.clarifyError.set(null);
+
+    this.takeSvc.askClarification(token, questionId, this.clarifyNote().trim() || undefined).subscribe({
+      next: res => {
+        this.clarifyLoading.set(false);
+        this.clarifyText.set(res.clarification);
+        this.clarifyDegraded.set(res.degraded);
+        this.clarifyRemaining.set(res.remainingForQuestion);
+        if (res.remainingForQuestion <= 0) this.clarifyExhausted.set(true);
+      },
+      error: err => {
+        this.clarifyLoading.set(false);
+        if (err.status === 429) {
+          this.clarifyExhausted.set(true);
+          this.clarifyError.set('You have reached the clarification limit for this question.');
+        } else {
+          this.clarifyError.set('Clarification is unavailable right now. Please answer to the best of your understanding.');
+        }
+      },
+    });
   }
 
   optionLetter(index: number): string {

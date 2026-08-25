@@ -75,4 +75,37 @@ describe('CandidateTakeService', () => {
       totalQuestionCount: 1,
     });
   });
+
+  it('askClarification sends POST /api/take/clarify with bearer token and note', () => {
+    service.askClarification(SESSION_TOKEN, 'q1', 'what does this mean?').subscribe(res => {
+      expect(res.clarification).toBe('It asks you to explain the concept.');
+      expect(res.remainingForQuestion).toBe(2);
+      expect(res.degraded).toBe(false);
+    });
+
+    const req = httpMock.expectOne('/api/take/clarify');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('Authorization')).toBe(`Bearer ${SESSION_TOKEN}`);
+    expect(req.request.body.questionId).toBe('q1');
+    expect(req.request.body.candidateNote).toBe('what does this mean?');
+    req.flush({
+      clarification: 'It asks you to explain the concept.',
+      remainingForQuestion: 2,
+      remainingForAssessment: 14,
+      degraded: false,
+    });
+  });
+
+  it('askClarification sends null note when omitted', () => {
+    service.askClarification(SESSION_TOKEN, 'q1').subscribe();
+
+    const req = httpMock.expectOne('/api/take/clarify');
+    expect(req.request.body.candidateNote).toBeNull();
+    req.flush({
+      clarification: 'text',
+      remainingForQuestion: 2,
+      remainingForAssessment: 14,
+      degraded: false,
+    });
+  });
 });
