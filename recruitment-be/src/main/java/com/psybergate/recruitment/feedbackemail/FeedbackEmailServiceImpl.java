@@ -6,7 +6,6 @@ import com.psybergate.recruitment.domain.CandidateSubmission;
 import com.psybergate.recruitment.email.EmailService;
 import com.psybergate.recruitment.feedback.domain.SubmissionFeedbackReport;
 import com.psybergate.recruitment.feedback.dto.FeedbackReportContent;
-import com.psybergate.recruitment.feedback.dto.FeedbackTopicDto;
 import com.psybergate.recruitment.feedback.repository.SubmissionFeedbackReportRepository;
 import com.psybergate.recruitment.feedbackemail.domain.FeedbackEmailSendLog;
 import com.psybergate.recruitment.feedbackemail.domain.FeedbackEmailSendStatus;
@@ -18,15 +17,18 @@ import com.psybergate.recruitment.marking.dto.ResultSummaryResponse;
 import com.psybergate.recruitment.repository.CandidateRepository;
 import com.psybergate.recruitment.repository.CandidateSubmissionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FeedbackEmailServiceImpl implements FeedbackEmailService {
@@ -40,6 +42,7 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
     private final CandidateRepository candidateRepository;
     private final FeedbackEmailSendLogRepository feedbackEmailSendLogRepository;
     private final FeedbackEmailSendLogWriter feedbackEmailSendLogWriter;
+    private final FeedbackEmailBodyGenerator feedbackEmailBodyGenerator;
     private final EmailService emailService;
     private final ObjectMapper objectMapper;
 
@@ -62,7 +65,7 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
 
         // Req 2.6: render the report content into a plain-text email body.
         FeedbackReportContent content = parseContent(report.getContent());
-        String body = renderBody(content, result, candidate.getFirstName());
+        String body = feedbackEmailBodyGenerator.generateBody(content, result, candidate.getFirstName());
 
         // Req 2.7: send the rendered email via the shared EmailService abstraction.
         try {
@@ -79,13 +82,22 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
         }
 
         // Req 2.8/2.11: send succeeded — persist a SENT row and return the response.
-        FeedbackEmailSendLog log = new FeedbackEmailSendLog();
-        log.setSubmissionId(submissionId);
-        log.setSentBy(sentBy);
-        log.setStatus(FeedbackEmailSendStatus.SENT);
-        log = feedbackEmailSendLogRepository.save(log);
+        FeedbackEmailSendLog sendLog = new FeedbackEmailSendLog();
+        sendLog.setSubmissionId(submissionId);
+        sendLog.setSentBy(sentBy);
+        sendLog.setStatus(FeedbackEmailSendStatus.SENT);
+        try {
+            sendLog = feedbackEmailSendLogRepository.save(sendLog);
+        } catch (Exception e) {
+            // Req 5.3/5.4: the email was already sent successfully at this point, so a failure
+            // to persist the SENT row must not surface as an error to the caller — log it and
+            // still return a successful response, falling back to the current time for sentAt
+            // since the persisted timestamp is unavailable.
+            log.warn("Failed to persist SENT feedback email send log for submission {}", submissionId, e);
+            sendLog.setSentAt(Instant.now());
+        }
 
-        return new FeedbackEmailSendResponse(log.getSubmissionId(), log.getStatus(), log.getSentAt());
+        return new FeedbackEmailSendResponse(sendLog.getSubmissionId(), sendLog.getStatus(), sendLog.getSentAt());
     }
 
     /**
@@ -98,81 +110,6 @@ public class FeedbackEmailServiceImpl implements FeedbackEmailService {
         } catch (JacksonException e) {
             throw new AiResponseException("The stored feedback report could not be parsed as structured feedback");
         }
-    }
-
-    /**
-     * Renders a {@link FeedbackReportContent} into the plain-text email body addressed to the
-     * candidate (Req 2.6), consisting of exactly the following elements, in order, with no
-     * separate narrative paragraph synthesized from {@code overallSummary} or anything else
-     * (Req 2.19):
-     * <ol>
-     *   <li>a first-name greeting line (Req 2.7)</li>
-     *   <li>the fixed introductory line (Req 2.8)</li>
-     *   <li>a score sentence stating the whole-number percentage (Req 2.9)</li>
-     *   <li>a strengths sentence naming every {@code Strong_Topic}, only if non-empty (Req 2.11, 2.12)</li>
-     *   <li>a weaknesses sentence naming every {@code Weak_Topic}, only if non-empty (Req 2.13, 2.14, 2.15)</li>
-     *   <li>the fixed transition line (Req 2.16)</li>
-     *   <li>{@code nextSteps[]} rendered verbatim as bullets (Req 2.17)</li>
-     *   <li>an encouraging sign-off sentence immediately before the signature (Req 2.18)</li>
-     * </ol>
-     */
-    private String renderBody(FeedbackReportContent content, ResultSummaryResponse result, String candidateName) {
-        long percentage = Math.round((double) result.totalScore() / result.maxScore() * 100);
-
-        List<String> strongTopics = content.topics().stream()
-                .filter(topic -> topic.strengths() != null && !topic.strengths().trim().isEmpty())
-                .map(FeedbackTopicDto::topic)
-                .toList();
-        List<String> weakTopics = content.topics().stream()
-                .filter(topic -> topic.weaknesses() != null && !topic.weaknesses().trim().isEmpty())
-                .map(FeedbackTopicDto::topic)
-                .toList();
-
-        StringBuilder body = new StringBuilder();
-        body.append("Hi ").append(candidateName).append(",\n\n")
-            .append("Here is your feedback on your recent assessment:\n\n")
-            .append("You scored ").append(percentage).append("% overall.\n\n");
-
-        if (!strongTopics.isEmpty()) {
-            body.append("You demonstrated strong performance in ")
-                    .append(joinWithAnd(strongTopics))
-                    .append(".\n\n");
-        }
-
-        if (!weakTopics.isEmpty()) {
-            body.append("There is room for improvement in ")
-                    .append(joinWithAnd(weakTopics))
-                    .append(".\n\n");
-        }
-
-        body.append("Here are some next steps to help you continue improving:\n");
-        for (String nextStep : content.nextSteps()) {
-            body.append("- ").append(nextStep).append("\n");
-        }
-        body.append("\n");
-
-        body.append("Keep up the great work, and don't hesitate to reach out if you have any questions about your feedback.\n\n");
-        body.append("The Psybergate Recruitment Team");
-        return body.toString();
-    }
-
-    /**
-     * Joins a list of topic names using the shared comma/"and" rule (Req 2.10): comma-separated
-     * for three or more items with "and" (no preceding comma) before the last, "X and Y" for
-     * exactly two, the bare item for exactly one, and "" for an empty list.
-     */
-    private String joinWithAnd(List<String> items) {
-        if (items.isEmpty()) {
-            return "";
-        }
-        if (items.size() == 1) {
-            return items.get(0);
-        }
-        if (items.size() == 2) {
-            return items.get(0) + " and " + items.get(1);
-        }
-        String allButLast = String.join(", ", items.subList(0, items.size() - 1));
-        return allButLast + ", and " + items.get(items.size() - 1);
     }
 
     /**
