@@ -42,6 +42,7 @@ class FeedbackEmailServiceImplTest {
     @Mock private CandidateRepository candidateRepository;
     @Mock private FeedbackEmailSendLogRepository feedbackEmailSendLogRepository;
     @Mock private FeedbackEmailSendLogWriter feedbackEmailSendLogWriter;
+    @Mock private FeedbackEmailBodyGenerator feedbackEmailBodyGenerator;
     @Mock private EmailService emailService;
 
     @InjectMocks
@@ -74,47 +75,30 @@ class FeedbackEmailServiceImplTest {
         submission.setCandidateId(candidate.getId());
     }
 
-    // ── happy path: rendered plain-text body (Req 2.6-2.19) ──────────────────
+    // ── happy path: body from the FeedbackEmailBodyGenerator collaborator (Req 1.1, 5.1) ──────
 
     @Test
-    void sendFeedbackEmail_success_rendersStructuredBody() {
+    void sendFeedbackEmail_success_sendsGeneratedBodyAndReturnsSent() {
         setupHappyPath();
+        String cannedBody = "Hi Jane,\n\nCanned AI body.\n\nThe Psybergate Recruitment Team";
+        when(feedbackEmailBodyGenerator.generateBody(any(), any(), eq("Jane"))).thenReturn(cannedBody);
 
         FeedbackEmailSendResponse response = service.sendFeedbackEmail(submissionId, sentBy);
 
-        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(emailService).sendFeedbackReport(eq(candidate), bodyCaptor.capture());
-        String body = bodyCaptor.getValue();
-
-        assertThat(body).startsWith("Hi Jane,");
-        assertThat(body).contains("Here is your feedback on your recent assessment:");
-        assertThat(body).contains("You scored 80% overall.");
-        assertThat(body).contains("You demonstrated strong performance in OOP.");
-        assertThat(body).contains("There is room for improvement in OOP.");
-        assertThat(body).contains("Here are some next steps to help you continue improving:");
-        assertThat(body).contains("- Practice design patterns");
-        assertThat(body).contains("The Psybergate Recruitment Team");
+        verify(emailService).sendFeedbackReport(eq(candidate), eq(cannedBody));
         assertThat(response.status()).isEqualTo(FeedbackEmailSendStatus.SENT);
     }
 
     @Test
-    void sendFeedbackEmail_noStrongOrWeakTopics_omitsStrengthsAndWeaknessesSentences() {
-        setupHappyPathWithReport(feedbackReportWithTopics("""
-                {
-                  "overallSummary": "Solid effort",
-                  "topics": [{"topic": "OOP", "strengths": "", "weaknesses": null}],
-                  "nextSteps": ["Practice design patterns"]
-                }
-                """));
+    void sendFeedbackEmail_success_delegatesBodyGenerationWithParsedContentAndResult() {
+        setupHappyPath();
+        when(feedbackEmailBodyGenerator.generateBody(any(), any(), any())).thenReturn("canned body");
 
         service.sendFeedbackEmail(submissionId, sentBy);
 
-        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(emailService).sendFeedbackReport(eq(candidate), bodyCaptor.capture());
-        String body = bodyCaptor.getValue();
-
-        assertThat(body).doesNotContain("strong performance");
-        assertThat(body).doesNotContain("room for improvement");
+        ArgumentCaptor<ResultSummaryResponse> resultCaptor = ArgumentCaptor.forClass(ResultSummaryResponse.class);
+        verify(feedbackEmailBodyGenerator).generateBody(any(), resultCaptor.capture(), eq("Jane"));
+        assertThat(resultCaptor.getValue().markingStatus()).isEqualTo("FULLY_MARKED");
     }
 
     // ── validation: submission not fully marked ──────────────────────────────
@@ -160,6 +144,7 @@ class FeedbackEmailServiceImplTest {
                 .thenReturn(Optional.of(submission));
         when(candidateRepository.findById(candidate.getId()))
                 .thenReturn(Optional.of(candidate));
+        when(feedbackEmailBodyGenerator.generateBody(any(), any(), any())).thenReturn("canned body");
         doThrow(new RuntimeException("SMTP timeout")).when(emailService).sendFeedbackReport(any(), anyString());
 
         assertThatThrownBy(() -> service.sendFeedbackEmail(submissionId, sentBy))
@@ -170,9 +155,35 @@ class FeedbackEmailServiceImplTest {
         verify(feedbackEmailSendLogWriter).saveFailure(submissionId, sentBy, "SMTP timeout");
     }
 
+    // ── Req 5.4: SENT row save fails after a successful send ─────────────────
+
+    @Test
+    void sendFeedbackEmail_sentRowSaveFails_stillReturnsSuccessfully() {
+        setupHappyPathWithoutLogSave();
+        when(feedbackEmailBodyGenerator.generateBody(any(), any(), any())).thenReturn("canned body");
+        doThrow(new RuntimeException("DB connection lost")).when(feedbackEmailSendLogRepository).save(any());
+
+        FeedbackEmailSendResponse response = service.sendFeedbackEmail(submissionId, sentBy);
+
+        assertThat(response).isNotNull();
+        assertThat(response.status()).isEqualTo(FeedbackEmailSendStatus.SENT);
+        assertThat(response.submissionId()).isEqualTo(submissionId);
+        verify(emailService).sendFeedbackReport(eq(candidate), anyString());
+        verifyNoInteractions(feedbackEmailSendLogWriter);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private void setupHappyPath() {
+        setupHappyPathWithReport(feedbackReport());
+        when(feedbackEmailSendLogRepository.save(any())).thenAnswer(inv -> {
+            FeedbackEmailSendLog log = inv.getArgument(0);
+            log.setSentAt(Instant.now());
+            return log;
+        });
+    }
+
+    private void setupHappyPathWithoutLogSave() {
         setupHappyPathWithReport(feedbackReport());
     }
 
@@ -185,11 +196,6 @@ class FeedbackEmailServiceImplTest {
                 .thenReturn(Optional.of(submission));
         when(candidateRepository.findById(candidate.getId()))
                 .thenReturn(Optional.of(candidate));
-        when(feedbackEmailSendLogRepository.save(any())).thenAnswer(inv -> {
-            FeedbackEmailSendLog log = inv.getArgument(0);
-            log.setSentAt(Instant.now());
-            return log;
-        });
     }
 
     private ResultSummaryResponse resultWithStatus(String markingStatus) {
