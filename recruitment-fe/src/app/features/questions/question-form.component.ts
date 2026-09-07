@@ -218,6 +218,20 @@ type SubQuestionEntry =
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                   Add option
                 </button>
+
+                <div class="distractor-row">
+                  <div class="field distractor-count">
+                    <label class="field-label">Count</label>
+                    <input type="number" class="field-input" [value]="distractorCount()"
+                      (input)="distractorCount.set(+$any($event.target).value)" min="1" max="5"/>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                    [disabled]="generatingDistractors() || !canSuggestDistractors()"
+                    (click)="suggestDistractors()">
+                    ✨ {{ generatingDistractors() ? 'Suggesting…' : 'Suggest distractors with AI' }}
+                  </button>
+                </div>
+
                 @if (mcqError()) {
                   <span class="field-err">{{ mcqError() }}</span>
                 }
@@ -510,6 +524,9 @@ type SubQuestionEntry =
     }
     .add-option-btn:hover { background: var(--accent-subtle); border-color: var(--accent); }
 
+    .distractor-row { display: flex; align-items: flex-end; gap: 10px; margin-top: 12px; }
+    .distractor-count { margin-bottom: 0; max-width: 90px; }
+
     /* GROUP: selected members */
     .members-list {
       display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
@@ -669,6 +686,10 @@ export class QuestionFormComponent implements OnInit {
   readonly aiDraftIndex = signal(0);
   readonly aiSavedDrafts = signal<Set<number>>(new Set());
   readonly aiSavingAll = signal(false);
+
+  // ── AI distractor generation state ──────────────────────────────────────
+  readonly distractorCount = signal(3);
+  readonly generatingDistractors = signal(false);
 
   readonly aiUnsavedCount = computed(() => {
     const total = this.aiDrafts().length;
@@ -918,6 +939,53 @@ export class QuestionFormComponent implements OnInit {
 
   markCorrect(index: number) {
     this.options.controls.forEach((ctrl, i) => ctrl.patchValue({ correct: i === index }));
+  }
+
+  /** Text of the option currently marked correct (trimmed), or '' if none. */
+  private correctOptionText(): string {
+    const correct = this.options.controls.find(c => c.get('correct')?.value === true);
+    return ((correct?.get('text')?.value ?? '') as string).trim();
+  }
+
+  /**
+   * Prerequisites for AI distractor generation: a non-blank stem AND a
+   * marked-correct option with non-blank text. Called from the template
+   * [disabled] binding so it re-evaluates on change detection.
+   */
+  canSuggestDistractors(): boolean {
+    const body = ((this.form.get('body')!.value ?? '') as string).trim();
+    return body.length > 0 && this.correctOptionText().length > 0;
+  }
+
+  suggestDistractors() {
+    const body = ((this.form.get('body')!.value ?? '') as string).trim();
+    const correctAnswer = this.correctOptionText();
+
+    if (!body || !correctAnswer) {
+      this.toastSvc.show('Add the question and mark the correct answer first', 'error');
+      return;
+    }
+
+    this.generatingDistractors.set(true);
+    this.aiSvc.generateDistractors({
+      questionBody: body,
+      correctAnswer,
+      count: this.distractorCount(),
+    }).subscribe({
+      next: distractors => {
+        // Append as new correct:false rows; existing options are untouched.
+        distractors.forEach(o => this.options.push(this.makeOption(o.text, false)));
+        this.generatingDistractors.set(false);
+        this.toastSvc.show(
+          `Added ${distractors.length} distractor${distractors.length > 1 ? 's' : ''} — review and edit before saving.`,
+          'success'
+        );
+      },
+      error: err => {
+        this.generatingDistractors.set(false);
+        this.toastSvc.show(this.friendlyAiError(err), 'error');
+      },
+    });
   }
 
   optionLetter(i: number): string {

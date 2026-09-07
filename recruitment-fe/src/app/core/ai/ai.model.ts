@@ -6,3 +6,8 @@ export interface GenerateQuestionsRequest {
   difficulty: Difficulty;
   count: number;
 }
+export interface GenerateDistractorsRequest {
+  questionBody: string;
+  correctAnswer: string;
+  count: number;
+}
