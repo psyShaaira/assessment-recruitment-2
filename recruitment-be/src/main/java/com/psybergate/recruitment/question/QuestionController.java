@@ -1,7 +1,10 @@
 package com.psybergate.recruitment.question;
 
+import com.psybergate.recruitment.ai.DistractorGenerationService;
 import com.psybergate.recruitment.ai.QuestionGenerationService;
+import com.psybergate.recruitment.question.dto.GenerateDistractorsRequest;
 import com.psybergate.recruitment.question.dto.GenerateQuestionRequest;
+import com.psybergate.recruitment.question.dto.QuestionOptionRequest;
 import com.psybergate.recruitment.question.dto.QuestionRequest;
 import com.psybergate.recruitment.question.dto.QuestionResponse;
 import jakarta.validation.Valid;
@@ -23,6 +26,7 @@ public class QuestionController {
 
     private final QuestionService questionService;
     private final QuestionGenerationService questionGenerationService;
+    private final DistractorGenerationService distractorGenerationService;
 
     @PostMapping
     public ResponseEntity<QuestionResponse> create(@RequestBody @Valid QuestionRequest request,
@@ -57,5 +61,11 @@ public class QuestionController {
     @PostMapping("/generate")
     public ResponseEntity<List<QuestionRequest>> generate(@RequestBody @Valid GenerateQuestionRequest request) {
         return ResponseEntity.ok(questionGenerationService.generate(request));
+    }
+
+    @PostMapping("/generate-distractors")
+    public ResponseEntity<List<QuestionOptionRequest>> generateDistractors(
+            @RequestBody @Valid GenerateDistractorsRequest request) {
+        return ResponseEntity.ok(distractorGenerationService.generateDistractors(request));
     }
 }

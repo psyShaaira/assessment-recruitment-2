@@ -56,3 +56,37 @@ describe('AiService — generateQuestions', () => {
     expect((caught as { status: number }).status).toBe(502);
   });
 });
+
+describe('AiService — generateDistractors', () => {
+  let service: AiService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(AiService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  it('POSTs to /api/questions/generate-distractors with the request body', () => {
+    const request = { questionBody: 'What is X?', correctAnswer: 'Correct', count: 3 };
+    const distractors = [
+      { text: 'A', correct: false },
+      { text: 'B', correct: false },
+      { text: 'C', correct: false },
+    ];
+
+    let received: { text: string; correct: boolean }[] | undefined;
+    service.generateDistractors(request).subscribe(res => (received = res));
+
+    const req = httpMock.expectOne('/api/questions/generate-distractors');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(request);
+    req.flush(distractors);
+
+    expect(received).toEqual(distractors);
+  });
+});

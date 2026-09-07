@@ -189,3 +189,137 @@ describe('QuestionFormComponent — Save All AI Drafts', () => {
     expect(titles).toEqual(['Generated B']);
   });
 });
+
+describe('QuestionFormComponent — suggestDistractors', () => {
+  let httpMock: HttpTestingController;
+  const ENDPOINT = '/api/questions/generate-distractors';
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [QuestionFormComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+  });
+
+  /** Snapshot of the current option rows (text + correct flag). */
+  function optionsSnapshot(component: QuestionFormComponent) {
+    return component.options.controls.map(c => ({
+      text: c.get('text')?.value as string,
+      correct: c.get('correct')?.value as boolean,
+    }));
+  }
+
+  it('appends returned distractors as correct:false without modifying existing options', () => {
+    const fixture = TestBed.createComponent(QuestionFormComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    // Valid state: body + a correct option ('Paris') + a wrong option ('London').
+    component.form.patchValue({ body: 'What is the capital of France?' });
+    component.markCorrect(0);
+    component.options.at(0).patchValue({ text: 'Paris' });
+    component.options.at(1).patchValue({ text: 'London' });
+
+    const before = optionsSnapshot(component);
+    expect(before).toEqual([
+      { text: 'Paris', correct: true },
+      { text: 'London', correct: false },
+    ]);
+
+    component.suggestDistractors();
+
+    const req = httpMock.expectOne(ENDPOINT);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({
+      questionBody: 'What is the capital of France?',
+      correctAnswer: 'Paris',
+      count: 3,
+    });
+
+    req.flush([
+      { text: 'Berlin', correct: false },
+      { text: 'Madrid', correct: false },
+      { text: 'Rome', correct: false },
+    ]);
+
+    // 2 original + 3 appended = 5.
+    expect(component.options.length).toBe(5);
+
+    const after = optionsSnapshot(component);
+    // Original two options unchanged (text + correct flags; Paris still correct).
+    expect(after[0]).toEqual({ text: 'Paris', correct: true });
+    expect(after[1]).toEqual({ text: 'London', correct: false });
+    // Appended distractors carry the returned texts and correct === false.
+    expect(after[2]).toEqual({ text: 'Berlin', correct: false });
+    expect(after[3]).toEqual({ text: 'Madrid', correct: false });
+    expect(after[4]).toEqual({ text: 'Rome', correct: false });
+
+    expect(component.generatingDistractors()).toBe(false);
+  });
+
+  it('is blocked (no HTTP call) when body is blank', () => {
+    const fixture = TestBed.createComponent(QuestionFormComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    // Valid correct option but empty body.
+    component.markCorrect(0);
+    component.options.at(0).patchValue({ text: 'Paris' });
+    component.options.at(1).patchValue({ text: 'London' });
+
+    const before = optionsSnapshot(component);
+
+    component.suggestDistractors();
+
+    expect(httpMock.match(ENDPOINT).length).toBe(0);
+    expect(optionsSnapshot(component)).toEqual(before);
+  });
+
+  it('is blocked (no HTTP call) when no correct option has text', () => {
+    const fixture = TestBed.createComponent(QuestionFormComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    // Body present, but the (default) correct option 0 has EMPTY text.
+    component.form.patchValue({ body: 'What is the capital of France?' });
+
+    const before = optionsSnapshot(component);
+
+    component.suggestDistractors();
+
+    expect(httpMock.match(ENDPOINT).length).toBe(0);
+    expect(optionsSnapshot(component)).toEqual(before);
+  });
+
+  it('error path leaves existing options intact', () => {
+    const fixture = TestBed.createComponent(QuestionFormComponent);
+    const component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.form.patchValue({ body: 'What is the capital of France?' });
+    component.markCorrect(0);
+    component.options.at(0).patchValue({ text: 'Paris' });
+    component.options.at(1).patchValue({ text: 'London' });
+
+    const before = optionsSnapshot(component);
+
+    component.suggestDistractors();
+
+    httpMock
+      .expectOne(ENDPOINT)
+      .flush({ detail: 'AI unavailable' }, { status: 502, statusText: 'Bad Gateway' });
+
+    expect(component.options.length).toBe(before.length);
+    expect(optionsSnapshot(component)).toEqual(before);
+    expect(component.generatingDistractors()).toBe(false);
+  });
+});
